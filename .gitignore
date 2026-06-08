@@ -1,0 +1,13 @@
+# Ignore large test PDF files in workspace root
+/*.pdf
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Editor configurations
+.vscode/
+.idea/
+*.suo
+*.sln
+*.sw?

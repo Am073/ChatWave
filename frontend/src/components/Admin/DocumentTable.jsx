@@ -2,6 +2,14 @@ import { useState, useEffect } from 'react';
 import api from '../../services/api';
 import { cn } from '../../utils/cn';
 
+const MIME_TO_SHORT = {
+  'application/pdf': 'pdf',
+  'application/msword': 'word',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'word',
+  'application/vnd.ms-excel': 'excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'excel',
+  'image/jpeg': 'image', 'image/jpg': 'image', 'image/png': 'image', 'image/webp': 'image',
+};
 const FILE_EMOJIS = { pdf:'📄', word:'📝', excel:'📊', image:'🖼' };
 
 const STATUS_CFG = {
@@ -37,7 +45,7 @@ export default function DocumentTable({ onRefresh }) {
       setStats({
         total: list.length,
         chunks: list.reduce((sum, d) => sum + (d.chunk_count || 0), 0),
-        ready: list.filter(d => d.processing_status === 'completed').length,
+        ready: list.filter(d => d.status === 'completed').length,
       });
     } catch (e) { console.error('DocumentTable:', e); setDocs([]); }
     finally { setLoading(false); }
@@ -45,20 +53,16 @@ export default function DocumentTable({ onRefresh }) {
 
   useEffect(() => { fetchDocs(); }, []);
 
+  // FIX[5]: DELETE /admin/documents/{id} does not exist in backend
   const handleDelete = async (id, name) => {
-    if (!window.confirm(`Delete "${name}"?\nRemoves from knowledge base permanently.`)) return;
-    setDeleting(id);
-    try {
-      await api.delete(`/admin/documents/${id}`);
-      setDocs(prev => prev.filter(d => d.id !== id));
-      if (onRefresh) onRefresh();
-    } catch (e) { alert('Delete failed: ' + (e.response?.data?.detail || e.message)); }
-    finally { setDeleting(null); }
+    console.warn(`[FIX5] DELETE /api/admin/documents/${id} is not implemented in the backend.`);
+    alert('This feature is not yet available.');
   };
 
+  // FIX[5]: POST /admin/documents/{id}/retry does not exist in backend
   const handleRetry = async (id) => {
-    try { await api.post(`/admin/documents/${id}/retry`); fetchDocs(); }
-    catch { alert('Retry failed'); }
+    console.warn(`[FIX5] POST /api/admin/documents/${id}/retry is not implemented in the backend.`);
+    alert('This feature is not yet available.');
   };
 
   return (
@@ -98,8 +102,9 @@ export default function DocumentTable({ onRefresh }) {
           </div>
         ) : (
           docs.map((doc, idx) => {
-            const st = STATUS_CFG[doc.processing_status] ?? STATUS_CFG.pending;
-            const emoji = FILE_EMOJIS[doc.file_type] || '📄';
+            const st = STATUS_CFG[doc.status] ?? STATUS_CFG.pending;
+            const fileType = MIME_TO_SHORT[doc.file_type] || 'pdf';
+            const emoji = FILE_EMOJIS[fileType] || '📄';
             const isDeleting = deleting === doc.id;
             return (
               <div
@@ -112,10 +117,10 @@ export default function DocumentTable({ onRefresh }) {
                 {/* Name */}
                 <div className="flex items-center gap-2 min-w-0">
                   <span className="text-base shrink-0">{emoji}</span>
-                  <span className="text-xs font-medium text-cw-t1 truncate">{doc.file_name}</span>
+                  <span className="text-xs font-medium text-cw-t1 truncate">{doc.filename || doc.file_name}</span>
                 </div>
                 {/* Type */}
-                <div className="text-[11px] text-cw-t3 uppercase">{doc.file_type || '—'}</div>
+                <div className="text-[11px] text-cw-t3 uppercase">{fileType}</div>
                 {/* Status */}
                 <div>
                   <span className={`text-[10px] font-medium px-2 py-px rounded-full ${st.cls}`}>{st.label}</span>
@@ -124,7 +129,7 @@ export default function DocumentTable({ onRefresh }) {
                 <div className="text-[11px] text-cw-t3">{doc.chunk_count || '—'}</div>
                 {/* Actions */}
                 <div className="flex gap-1">
-                  {doc.processing_status === 'failed' && (
+                  {doc.status === 'failed' && (
                     <button
                       onClick={() => handleRetry(doc.id)}
                       title="Retry processing"

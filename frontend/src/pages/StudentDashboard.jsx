@@ -6,6 +6,7 @@ import AnnouncementsPage from "../components/Feed/AnnouncementsPage";
 import ChatWindow from "../components/Chat/ChatWindow";
 import BottomNav from "../components/Layout/BottomNav";
 import SettingsModal from "../components/Settings/SettingsModal";
+import { useCalendarConnectionToast } from "../hooks/useCalendarIntegration";
 import { timeAgo } from "../utils/dateHelpers";
 import { cn } from "../utils/cn";
 
@@ -37,13 +38,9 @@ export default function StudentDashboard() {
 
   useEffect(() => {
     fetchData();
-    // Handle calendar connection redirect toast
-    const params = new URLSearchParams(window.location.search);
-    if (params.get("calendar") === "connected") {
-      alert("✅ Google Calendar connected successfully!");
-      window.history.replaceState({}, document.title, window.location.pathname);
-    }
   }, []);
+
+  useCalendarConnectionToast();
 
   const handleAnnSelect = async (id) => {
     setActiveAnnId(id);

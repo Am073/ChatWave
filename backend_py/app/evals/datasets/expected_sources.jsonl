@@ -1,0 +1,2 @@
+{"question": "What does the academic calendar say about exam week?", "expected_sources": [{"filename": "academic_calendar.pdf", "min_score": 0.5}]}
+{"question": "What is the attendance policy?", "expected_sources": [{"filename": "student_handbook.pdf", "min_score": 0.5}]}

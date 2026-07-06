@@ -1,0 +1,2 @@
+{"question": "Add 'final exam' to my calendar on December 15.", "expected_tools": ["calendar_create"], "expected_behavior": "tool_or_clarify"}
+{"question": "What are the latest announcements?", "expected_tools": ["get_announcements"], "expected_behavior": "tool"}

@@ -51,7 +51,7 @@ export default function Register() {
       <div className="absolute -bottom-10 -right-10 w-64 h-64 rounded-full bg-purple-500/[0.05] blur-[60px] pointer-events-none z-[1]" />
 
       {/* Main card */}
-      <div className="relative z-10 w-full max-w-[420px] bg-[#0c0f17]/92 backdrop-blur-xl border border-white/[0.12] rounded-2xl p-8">
+      <form onSubmit={handleSubmit} className="relative z-10 w-full max-w-[420px] bg-[#0c0f17]/92 backdrop-blur-xl border border-white/[0.12] rounded-2xl p-8">
         <h1 className="font-outfit text-xl font-bold text-center text-cw-t1 mb-1">Create Account</h1>
 
         <p className="text-xs text-cw-t3 text-center mb-6">Join your college on ChatWave</p>
@@ -142,7 +142,7 @@ export default function Register() {
 
         {/* Submit button */}
         <button
-          onClick={handleSubmit}
+          type="submit"
           disabled={loading}
           className="cw-btn-primary mt-2 mb-3"
         >
@@ -154,7 +154,7 @@ export default function Register() {
           onClick={() => navigate('/login')}
           className="text-center text-xs text-cw-blue-light cursor-pointer hover:underline mt-1"
         >Already have an account? Sign in</p>
-      </div>
+      </form>
     </div>
   );
 }

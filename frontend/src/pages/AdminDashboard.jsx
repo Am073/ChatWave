@@ -11,6 +11,7 @@ import UploadedDocumentsList from "../components/Upload/UploadedDocumentsList";
 import AllAnnouncementsList from "../components/Admin/AllAnnouncementsList";
 import SettingsModal from "../components/Settings/SettingsModal";
 import { useAdminStats } from "../hooks/useAdminStats";
+import { useCalendarConnectionToast } from "../hooks/useCalendarIntegration";
 import { getActivity, getHealth } from "../services/adminService";
 import { cn } from "../utils/cn";
 
@@ -53,6 +54,8 @@ export default function AdminDashboard() {
     const interval = setInterval(fetchAdminData, 60000);
     return () => clearInterval(interval);
   }, []);
+
+  useCalendarConnectionToast();
 
   return (
     <div className="flex flex-col min-h-screen bg-cw-black">
@@ -105,11 +108,11 @@ export default function AdminDashboard() {
         {activeTab === "overview" && (
           <div className="flex flex-col gap-4 max-w-7xl mx-auto">
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
-              <StatCard label="Students"      value={stats?.total_students ?? '—'}      accentColor="#2563eb" />
-              <StatCard label="Faculty"       value={stats?.total_faculty ?? '—'}       accentColor="#7c3aed" />
-              <StatCard label="Documents"     value={stats?.total_documents ?? '—'}     accentColor="#0d9488" />
-              <StatCard label="Announcements" value={stats?.total_announcements ?? '—'} accentColor="#f59e0b" />
-              <StatCard label="Queries Today" value={stats?.queries_today ?? '—'}       accentColor="#10b981" />
+              <StatCard label="Students"      value={stats?.totalStudents ?? '—'}      accentColor="#2563eb" />
+              <StatCard label="Faculty"       value={stats?.totalFaculty ?? '—'}       accentColor="#7c3aed" />
+              <StatCard label="Documents"     value={stats?.totalDocuments ?? '—'}     accentColor="#0d9488" />
+              <StatCard label="Announcements" value={stats?.totalAnnouncements ?? '—'} accentColor="#f59e0b" />
+              <StatCard label="Queries Today" value={stats?.queriesToday ?? '—'}       accentColor="#10b981" />
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <ActivityFeed activities={activities} loading={loadingExtras} />
@@ -130,9 +133,9 @@ export default function AdminDashboard() {
           <div className="max-w-7xl mx-auto flex flex-col gap-4">
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
               {[
-                { label: 'Total Sources', value: stats?.total_documents || 0,  color: 'text-cw-t1' },
-                { label: 'Global Chunks', value: stats?.total_chunks || 0,     color: 'text-cw-blue-light' },
-                { label: 'RAG Precision', value: '98.2%',                      color: 'text-emerald-400' },
+                { label: 'Total Sources', value: stats?.totalDocuments || 0,  color: 'text-cw-t1' },
+                { label: 'Global Chunks', value: stats?.totalChunks || 0,     color: 'text-cw-blue-light' },
+                { label: 'RAG Precision', value: '98.2%',                     color: 'text-emerald-400' },
               ].map(({ label, value, color }) => (
                 <div key={label} className="cw-card p-4 text-center">
                   <div className={`font-outfit text-2xl font-bold ${color}`}>{value}</div>

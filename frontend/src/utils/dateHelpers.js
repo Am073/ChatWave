@@ -1,8 +1,9 @@
 export function timeAgo(dateString) {
   if (!dateString) return '';
-  const diff = Date.now() -
-    new Date(dateString).getTime();
+  const diff = Date.now() - new Date(dateString).getTime();
+  if (diff < 0) return 'just now';
   const s = Math.floor(diff / 1000);
+  if (s < 1) return 'just now';
   if (s < 60) return `${s}s ago`;
   const m = Math.floor(s / 60);
   if (m < 60) return `${m}m ago`;
@@ -18,13 +19,5 @@ export function formatDate(dateString) {
     .toLocaleDateString('en-IN', {
       day: 'numeric', month: 'short',
       year: 'numeric'
-    });
-}
-export function formatDateTime(dateString) {
-  if (!dateString) return '';
-  return new Date(dateString)
-    .toLocaleString('en-IN', {
-      day: 'numeric', month: 'short',
-      hour: '2-digit', minute: '2-digit'
     });
 }

@@ -5,10 +5,6 @@ export const login = async (college_id, password, role) => {
   return res.data;
 };
 
-export const logout = async () => {
-  await api.post('/auth/logout');
-};
-
 export const register = async (data) => {
   const res = await api.post('/auth/register', data);
   return res.data;

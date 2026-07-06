@@ -27,7 +27,8 @@ export default function UploadedDocumentsList({ collegeName, refreshTrigger }) {
 
   const fetchDocs = async () => {
     try {
-      const res = await api.get('/upload/list');
+      // FIX[5]: Aligned with FastAPI route GET /api/upload
+      const res = await api.get('/upload');
       setDocs(res.data?.documents || res.data || []);
     } catch { setDocs([]); }
     finally { setLoading(false); }
@@ -45,9 +46,10 @@ export default function UploadedDocumentsList({ collegeName, refreshTrigger }) {
     finally { setDeleting(null); }
   };
 
+  // FIX[5]: POST /upload/document/{id}/retry does not exist in backend
   const handleRetry = async (docId) => {
-    try { await api.post(`/upload/document/${docId}/retry`); fetchDocs(); }
-    catch { alert('Retry failed'); }
+    console.warn(`[FIX5] POST /api/upload/document/${docId}/retry is not implemented in the backend.`);
+    alert('This feature is not yet available.');
   };
 
   if (loading) return (

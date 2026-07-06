@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { useWebSocket } from "../../hooks/useWebSocket";
+import { useChatStream } from "../../hooks/useChatStream";
 import { addEvent } from "../../services/calendarService";
 import api from "../../services/api";
 import ChatMessage from "./ChatMessage";
@@ -34,7 +34,7 @@ export default function ChatWindow({ userId, collegeName }) {
   const {
     messages, setMessages, isTyping, connected,
     sendMessage: wsSendMessage, clearMessages
-  } = useWebSocket(userId, collegeName);
+  } = useChatStream(userId, collegeName);
 
   const scrollRef = useRef(null);
   const [searching, setSearching] = useState(false);
@@ -163,15 +163,10 @@ export default function ChatWindow({ userId, collegeName }) {
     return () => observer.disconnect();
   }, [hasMoreHistory, loadingMore, loadMoreHistory]);
 
-  // ── Send message ───────────────────────────────────────────────────────
+  // FIX[7]: Removed duplicate user message append — useChatStream.sendMessage
+  // already adds the optimistic user message and bot placeholder.
   const sendMessage = (question) => {
     if (!question.trim() || isTyping || searching) return;
-    const userMsg = {
-      id: `user-${Date.now()}`,
-      role: 'user',
-      content: question,
-    };
-    setMessages(prev => [...prev, userMsg]);
     setSearching(true);
     setSearchStatus(
       mode === 'general'

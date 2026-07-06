@@ -11,3 +11,59 @@ Thumbs.db
 *.suo
 *.sln
 *.sw?
+
+# Generated artifacts (should never be committed)
+node_modules/
+dist/
+build/
+coverage/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+venv/
+env/
+.aistudio/
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Logs and local runtime state
+*.log
+*.pid
+.deepeval/
+
+# Local agent/tooling state
+.agents/
+.codex/
+skills-lock.json
+
+# Personal notes / scratch docs
+CHATWAVE-INFO.md
+*-INFO.md
+NOTES.md
+NOTES-*.md
+*-NOTES.md
+*_NOTES.md
+PERSONAL*.md
+notes/
+scratch/
+
+# Secret/key material
+*.pem
+*.key
+*.p12
+*.pfx
+secrets.yaml
+secrets.yml
+
+# Local databases and uploads
+*.db
+*.sqlite
+*.sqlite3
+uploads/

@@ -23,6 +23,7 @@ const CAT_TAG = {
 
 export default function PostAnnouncement({ showOnlyMine = true, onPostSuccess }) {
   const { user } = useAuth();
+  const [title, setTitle] = useState("");  // FIX[6]: title field required by backend
   const [content, setContent] = useState("");
   const [category, setCategory] = useState("notice");
   const [loading, setLoading] = useState(false);
@@ -30,10 +31,13 @@ export default function PostAnnouncement({ showOnlyMine = true, onPostSuccess })
 
   const fetchRecent = async () => {
     try {
-      const res = await getAnnouncements({ mine: showOnlyMine ? true : undefined, limit: 10 });
-      const posts = res.data?.announcements || res.data || [];
+      const res = await getAnnouncements();
+      const posts = Array.isArray(res.data) ? res.data : (res.data?.announcements || []);
+      const filtered = showOnlyMine
+        ? posts.filter(p => (p.author?._id || p.author?.id || p.author) === user?.id)
+        : posts;
       const postMap = new Map();
-      posts.forEach(p => { if (!postMap.has(p.id)) postMap.set(p.id, p); });
+      filtered.forEach(p => { if (!postMap.has(p.id || p._id)) postMap.set(p.id || p._id, { ...p, id: p.id || p._id }); });
       setRecentPosts(Array.from(postMap.values()).slice(0, 5));
     } catch { setRecentPosts([]); }
   };
@@ -42,23 +46,27 @@ export default function PostAnnouncement({ showOnlyMine = true, onPostSuccess })
     if (!window.confirm('Delete this announcement?')) return;
     try {
       await api.delete(`/announcements/${postId}`);
-      setRecentPosts(prev => prev.filter(p => p.id !== postId));
+      setRecentPosts(prev => prev.filter(p => p.id !== postId && p._id !== postId));
     } catch { alert('Could not delete announcement'); }
   };
 
-  useEffect(() => { fetchRecent(); }, []);
+  useEffect(() => { fetchRecent(); }, [showOnlyMine, user?.id]);
 
   const handlePost = async () => {
+    // FIX[6]: Validate title is non-empty
+    if (!title.trim()) { alert('Please enter a title'); return; }
     if (!content.trim()) { alert('Please write an announcement'); return; }
     setLoading(true);
     try {
       if (!user) { alert('Not logged in'); return; }
+      // FIX[6]: Include title in the payload
       await postAnnouncement({
+        title: title.trim(),
         content: content.trim(),
         category,
         is_private: false
       });
-      setContent(''); setCategory('notice');
+      setTitle(''); setContent(''); setCategory('notice');
       await fetchRecent();
       onPostSuccess?.();
     } catch (err) {
@@ -88,6 +96,16 @@ export default function PostAnnouncement({ showOnlyMine = true, onPostSuccess })
         </div>
       </div>
 
+      {/* FIX[6]: Title input */}
+      <input
+        type="text"
+        value={title}
+        onChange={e => setTitle(e.target.value)}
+        placeholder="Announcement title (required)"
+        className="cw-input text-xs"
+        maxLength={200}
+      />
+
       {/* Text area */}
       <textarea
         value={content}
@@ -99,7 +117,7 @@ export default function PostAnnouncement({ showOnlyMine = true, onPostSuccess })
       {/* Post button */}
       <button
         onClick={handlePost}
-        disabled={loading || !content.trim()}
+        disabled={loading || !content.trim() || !title.trim()}
         className="w-full py-2 rounded-xl border-none bg-cw-teal text-white text-xs font-dm font-medium cursor-pointer hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
       >
         {loading ? "Posting..." : "Post Announcement"}

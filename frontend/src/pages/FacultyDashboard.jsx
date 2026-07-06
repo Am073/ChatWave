@@ -5,6 +5,7 @@ import DocumentUpload from "../components/Upload/DocumentUpload";
 import UploadedDocumentsList from '../components/Upload/UploadedDocumentsList';
 import PostAnnouncement from "../components/Upload/PostAnnouncement";
 import SettingsModal from "../components/Settings/SettingsModal";
+import { useCalendarConnectionToast } from "../hooks/useCalendarIntegration";
 import { cn } from "../utils/cn";
 
 export default function FacultyDashboard() {
@@ -12,6 +13,8 @@ export default function FacultyDashboard() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const { user } = useAuth();
   const [docListRefresh, setDocListRefresh] = useState(0);
+
+  useCalendarConnectionToast();
 
   return (
     <div className="flex flex-col min-h-screen bg-cw-black">

@@ -18,6 +18,16 @@ export const deleteUser = (userId) => api.delete(`/admin/users/${userId}`);
 
 export const getDocuments = (params) => api.get('/admin/documents', { params });
 
-export const deleteDocument = (documentId) => api.delete(`/admin/documents/${documentId}`);
+// FIX[5]: DELETE /admin/documents/{id} does not exist in backend
+export const deleteDocument = (documentId) => {
+  console.warn(`[FIX5] DELETE /api/admin/documents/${documentId} is not implemented.`);
+  alert('This feature is not yet available.');
+  return Promise.resolve();
+};
 
-export const triggerSeed = () => api.post('/admin/seed');
+// FIX[5]: POST /admin/seed does not exist in backend
+export const triggerSeed = () => {
+  console.warn('[FIX5] POST /api/admin/seed is not implemented.');
+  alert('This feature is not yet available.');
+  return Promise.resolve();
+};

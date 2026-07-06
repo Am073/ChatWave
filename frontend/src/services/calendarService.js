@@ -4,8 +4,18 @@ export const getCalendarStatus = () => api.get('/calendar/status');
 
 export const getAuthUrl = () => api.get('/calendar/auth');
 
-export const syncCalendarEvent = (eventId) => api.post('/calendar/sync', { eventId });
+// FIX[5]: POST /calendar/sync does not exist in backend
+export const syncCalendarEvent = (eventId) => {
+  console.warn(`[FIX5] POST /api/calendar/sync is not implemented.`);
+  alert('This feature is not yet available.');
+  return Promise.resolve();
+};
 
-export const getCalendarEvents = () => api.get('/calendar/events');
+export const addEvent = (data) => api.post('/calendar/events', data);
 
-export const addEvent = (data) => api.post('/calendar/sync', data);
+// FIX[5]: DELETE /calendar/disconnect does not exist in backend
+export const disconnectCalendar = () => {
+  console.warn('[FIX5] DELETE /api/calendar/disconnect is not implemented.');
+  alert('This feature is not yet available.');
+  return Promise.resolve();
+};

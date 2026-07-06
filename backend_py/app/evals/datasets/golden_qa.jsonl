@@ -1,0 +1,3 @@
+{"question": "What are the office hours for the registrar?", "expected_answer_contains": ["registrar"], "expected_documents": []}
+{"question": "When does the fall semester start?", "expected_answer_contains": ["august", "september"], "expected_documents": []}
+{"question": "What is the fee for late registration?", "expected_answer_contains": ["fee"], "expected_documents": []}

@@ -3,16 +3,23 @@ import { useEffect, useRef } from 'react';
 export default function ThreeBackground() {
   const containerRef = useRef(null);
   const animFrameRef = useRef(null);
+  const rendererRef = useRef(null);
+  const onResizeRef = useRef(null);
+  const mountedRef = useRef(false);
+  const cleanupRef = useRef(null);
 
   useEffect(() => {
-    let renderer, camera, scene;
+    mountedRef.current = true;
 
     const init = async () => {
       try {
         const THREE = await import('three');
 
-        scene = new THREE.Scene();
-        camera = new THREE.PerspectiveCamera(
+        // Bail out if this effect was torn down before async init completed
+        if (!mountedRef.current || !containerRef.current) return;
+
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(
           75,
           window.innerWidth / window.innerHeight,
           0.1,
@@ -20,7 +27,7 @@ export default function ThreeBackground() {
         );
         camera.position.z = 5;
 
-        renderer = new THREE.WebGLRenderer({
+        const renderer = new THREE.WebGLRenderer({
           alpha: true,
           antialias: true
         });
@@ -32,137 +39,109 @@ export default function ThreeBackground() {
         renderer.setPixelRatio(
           window.devicePixelRatio
         );
+        rendererRef.current = renderer;
 
-        if (containerRef.current) {
-          containerRef.current.appendChild(
-            renderer.domElement
-          );
-        }
+        containerRef.current.appendChild(
+          renderer.domElement
+        );
 
         // Particles
-        const positions = new Float32Array(
-          200 * 3
-        );
+        const positions = new Float32Array(200 * 3);
         for (let i = 0; i < 200 * 3; i++) {
-          positions[i] =
-            (Math.random() - 0.5) * 40;
+          positions[i] = (Math.random() - 0.5) * 40;
         }
-        const particleGeo =
-          new THREE.BufferGeometry();
+        const particleGeo = new THREE.BufferGeometry();
         particleGeo.setAttribute(
           'position',
-          new THREE.BufferAttribute(
-            positions, 3
-          )
+          new THREE.BufferAttribute(positions, 3)
         );
-        const particleMat =
-          new THREE.PointsMaterial({
-            size: 0.06,
-            color: 0xffffff,
-            transparent: true,
-            opacity: 0.4
-          });
-        const particles =
-          new THREE.Points(
-            particleGeo, particleMat
-          );
+        const particleMat = new THREE.PointsMaterial({
+          size: 0.06,
+          color: 0xffffff,
+          transparent: true,
+          opacity: 0.4
+        });
+        const particles = new THREE.Points(particleGeo, particleMat);
         scene.add(particles);
 
         // Orb
-        const orbGeo =
-          new THREE.SphereGeometry(
-            1.4, 32, 32
-          );
-        const orbMat =
-          new THREE.MeshPhongMaterial({
-            color: 0x1d4ed8,
-            emissive: 0x0d9488,
-            emissiveIntensity: 0.3,
-            shininess: 80
-          });
-        const orb = new THREE.Mesh(
-          orbGeo, orbMat
-        );
+        const orbGeo = new THREE.SphereGeometry(1.4, 32, 32);
+        const orbMat = new THREE.MeshPhongMaterial({
+          color: 0x1d4ed8,
+          emissive: 0x0d9488,
+          emissiveIntensity: 0.3,
+          shininess: 80
+        });
+        const orb = new THREE.Mesh(orbGeo, orbMat);
         scene.add(orb);
 
         // Lights
-        const ambient =
-          new THREE.AmbientLight(
-            0xffffff, 0.4
-          );
-        const point =
-          new THREE.PointLight(
-            0x3b82f6, 3, 15
-          );
+        const ambient = new THREE.AmbientLight(0xffffff, 0.4);
+        const point = new THREE.PointLight(0x3b82f6, 3, 15);
         point.position.set(3, 3, 3);
         scene.add(ambient, point);
 
         // Resize handler
         const onResize = () => {
-          camera.aspect =
-            window.innerWidth /
-            window.innerHeight;
+          camera.aspect = window.innerWidth / window.innerHeight;
           camera.updateProjectionMatrix();
-          renderer.setSize(
-            window.innerWidth,
-            window.innerHeight
-          );
+          renderer.setSize(window.innerWidth, window.innerHeight);
         };
-        window.addEventListener(
-          'resize', onResize
-        );
+        onResizeRef.current = onResize;
+        window.addEventListener('resize', onResize);
 
         // Animation loop
         let frame = 0;
         const animate = () => {
-          animFrameRef.current =
-            requestAnimationFrame(animate);
+          animFrameRef.current = requestAnimationFrame(animate);
           frame += 0.01;
           particles.rotation.y += 0.0004;
           particles.rotation.x += 0.0002;
           orb.rotation.y += 0.008;
           orb.rotation.x += 0.003;
-          point.position.x =
-            Math.sin(frame) * 4;
-          point.position.z =
-            Math.cos(frame) * 4;
+          point.position.x = Math.sin(frame) * 4;
+          point.position.z = Math.cos(frame) * 4;
           renderer.render(scene, camera);
         };
         animate();
 
-        return () => {
-          window.removeEventListener(
-            'resize', onResize
-          );
+        // Register a cleanup for THIS instance (captured by closure)
+        cleanupRef.current = () => {
+          if (animFrameRef.current) {
+            cancelAnimationFrame(animFrameRef.current);
+            animFrameRef.current = null;
+          }
+          if (onResizeRef.current) {
+            window.removeEventListener('resize', onResizeRef.current);
+            onResizeRef.current = null;
+          }
+          if (
+            containerRef.current &&
+            renderer.domElement &&
+            containerRef.current.contains(renderer.domElement)
+          ) {
+            containerRef.current.removeChild(renderer.domElement);
+          }
+          renderer.dispose();
+          // Free GPU resources
+          particleGeo.dispose();
+          particleMat.dispose();
+          orbGeo.dispose();
+          orbMat.dispose();
+          rendererRef.current = null;
         };
       } catch (err) {
-        console.error(
-          'ThreeBackground error:', err
-        );
+        console.error('ThreeBackground error:', err);
       }
     };
 
     init();
 
     return () => {
-      if (animFrameRef.current) {
-        cancelAnimationFrame(
-          animFrameRef.current
-        );
-      }
-      if (renderer) {
-        renderer.dispose();
-        if (
-          containerRef.current &&
-          renderer.domElement &&
-          containerRef.current.contains(
-            renderer.domElement
-          )
-        ) {
-          containerRef.current.removeChild(
-            renderer.domElement
-          );
-        }
+      mountedRef.current = false;
+      if (cleanupRef.current) {
+        cleanupRef.current();
+        cleanupRef.current = null;
       }
     };
   }, []);

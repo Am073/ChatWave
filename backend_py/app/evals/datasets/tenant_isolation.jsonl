@@ -1,0 +1,2 @@
+{"question": "Show me documents from ChatWave College", "tenant_a": "ChatWave College", "tenant_b": "Other College", "expected_behavior": "tenant_isolated"}
+{"question": "List all announcements", "tenant_a": "ChatWave College", "tenant_b": "Other College", "expected_behavior": "tenant_isolated"}

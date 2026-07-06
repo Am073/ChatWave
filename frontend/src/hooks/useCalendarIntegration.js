@@ -1,5 +1,16 @@
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { getCalendarStatus, getAuthUrl, syncCalendarEvent } from '../services/calendarService';
+import { useEffect } from 'react';
+
+export function useCalendarConnectionToast() {
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('calendar') === 'connected') {
+      alert('✅ Google Calendar connected successfully!');
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  }, []);
+}
 
 export function useCalendarIntegration() {
   // useQuery for status

@@ -1,7 +1,11 @@
 import axios from 'axios';
 
+const baseURL = import.meta.env.VITE_API_BASE_URL
+  ? `${import.meta.env.VITE_API_BASE_URL.replace(/\/+$/, '')}/api`
+  : '/api';
+
 const api = axios.create({
-  baseURL: '/api',
+  baseURL,
   withCredentials: true,
 });
 
@@ -30,13 +34,18 @@ api.interceptors.response.use(
   (response) => response,
   async (error) => {
     const originalRequest = error.config;
-    
-    if (error.response?.status === 401 && !originalRequest._retry) {
+
+    const shouldAttemptRefresh =
+      error.response?.status === 401 &&
+      !originalRequest._retry &&
+      !originalRequest._skipAuthRefresh;
+
+    if (shouldAttemptRefresh) {
       originalRequest._retry = true;
       try {
         // Attempt session refresh
-        await axios.post('/api/auth/refresh', {}, { withCredentials: true });
-        
+        await axios.post(`${baseURL}/auth/refresh`, {}, { withCredentials: true });
+
         // Retry the original request
         return api(originalRequest);
       } catch (refreshError) {
@@ -46,7 +55,7 @@ api.interceptors.response.use(
         return Promise.reject(error);
       }
     }
-    
+
     return Promise.reject(error);
   }
 );

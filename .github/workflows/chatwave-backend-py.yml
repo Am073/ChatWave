@@ -1,0 +1,78 @@
+name: chatwave-backend-py-ci
+
+on:
+  push:
+    branches: [main, master, develop]
+    paths: ["backend_py/**", ".github/workflows/chatwave-backend-py.yml"]
+  pull_request:
+    branches: [main, master, develop]
+    paths: ["backend_py/**", ".github/workflows/chatwave-backend-py.yml"]
+
+defaults:
+  run:
+    working-directory: backend_py
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        run: curl -LsSf https://astral.sh/uv/install.sh | sh
+        env:
+          UV_INSTALL_DIR: /usr/local/bin
+
+      - name: Set up Python
+        run: uv python install ${{ matrix.python-version }}
+
+      - name: Cache venv
+        uses: actions/cache@v4
+        with:
+          path: |
+            backend_py/.venv
+            ~/.cache/uv
+          key: uv-${{ runner.os }}-${{ matrix.python-version }}-${{ hashFiles('backend_py/pyproject.toml', 'backend_py/uv.lock') }}
+
+      - name: Install dependencies
+        run: uv sync --all-extras
+
+      - name: Ruff lint
+        run: uv run ruff check .
+
+      - name: Pytest (offline-safe unit tests)
+        run: uv run pytest
+
+      - name: Guardrail + tenant isolation smoke
+        run: uv run python -m app.evals.run_agent_evals
+
+      - name: Ragas runner smoke
+        run: uv run python -m app.evals.run_rag_evals
+
+      - name: Enforce quality thresholds
+        run: |
+          set -e
+          REPORT=$(uv run python -c "import asyncio, json; from app.evals.run_agent_evals import run; print(json.dumps(asyncio.run(run())))")
+          echo "Eval report: $REPORT"
+          # Threshold gate: tenant_isolation must block every case;
+          # injection must flag every 'refuse' case.
+          python3 - <<'PY'
+          import json, sys
+          report = json.loads("""$REPORT""")
+          if report["status"] != "ok":
+              print(f"FAIL: eval status {report['status']}")
+              sys.exit(1)
+          ti = report["tenant_isolation"]
+          if ti["blocked"] < ti["isolation_cases"]:
+              print(f"FAIL: tenant isolation {ti['blocked']}/{ti['isolation_cases']} blocked")
+              sys.exit(1)
+          inj = report["injection"]
+          if inj["true_positives"] < inj["injection_cases"]:
+              print(f"FAIL: injection {inj['true_positives']}/{inj['injection_cases']} flagged")
+              sys.exit(1)
+          print("OK: all quality gates passed")
+          PY

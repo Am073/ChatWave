@@ -6,6 +6,8 @@ import { login as loginApi, getCsrfToken } from "../services/authService";
 import ThreeBackground from "../components/Three/ThreeBackground";
 import { cn } from "../utils/cn";
 
+const MotionForm = motion.form;
+
 export default function Login() {
   const [collegeId, setCollegeId] = useState("");
   const [password, setPassword] = useState("");
@@ -61,7 +63,8 @@ export default function Login() {
       {/* GLOW 2 */}
       <div className="absolute -bottom-10 -right-10 w-64 h-64 rounded-full bg-purple-500/[0.06] blur-[60px] pointer-events-none z-[1]" />
 
-      <motion.div
+      <MotionForm
+        onSubmit={handleSubmit}
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4, ease: 'easeOut' }}
@@ -158,7 +161,7 @@ export default function Login() {
         )}
 
         <button
-          onClick={handleSubmit}
+          type="submit"
           disabled={loading || authLoading}
           className="cw-btn-primary mb-3"
         >
@@ -171,7 +174,7 @@ export default function Login() {
           onClick={() => navigate('/register')}
           className="text-center text-xs text-cw-blue-light cursor-pointer hover:underline"
         >Create a new account</p>
-      </motion.div>
+      </MotionForm>
     </div>
   );
 }

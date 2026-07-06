@@ -1,91 +1,66 @@
-# ChatWave — Multi-tenant RAG Institutional Chatbot
+# ChatWave — Multi-tenant Agentic AI Platform
 
-ChatWave is a production-grade, multi-tenant RAG (Retrieval-Augmented Generation) institutional chatbot system built on a modern MERN stack. Designed for educational institutions, ChatWave allows students and faculty to search and interact with institutional knowledge bases (syllabi, schedules, regulations, documents) scoped dynamically to their college and department.
+> **Current versions:**
+> - **v2 (FastAPI + AI stack)** — `backend_py/` (FastAPI + Beanie + LangGraph + LlamaIndex + Qdrant + LiteLLM + Celery + Langfuse)
+> - **Frontend** — `frontend/` (React 19 + Vite, pointed at FastAPI)
+>
+> See `specs/` for the v2 specification and `CHATWAVE-INFO.md` for the v1 source-of-truth.
+> See `backend_py/RETIRE_EXPRESS.md` for the v1 retirement checklist (now complete — Express was removed).
 
----
-
-## 🚀 Key Features
-
-*   **Multi-Tenant Architecture:** Complete data and vector isolation. Vector collections are dynamically scoped per tenant (`chatwave_{college_name_slug}`).
-*   **Asynchronous Ingestion Pipeline:** Uses Node.js `worker_threads` to parse and chunk PDFs (`pdf-parse`), Word documents (`mammoth`), Excel sheets (`xlsx`), and Images (OCR via `node-tesseract-ocr`) in the background without blocking the Express event loop. Includes a robust, jittered exponential backoff retry system to gracefully manage external API rate limits (HTTP 429) during large file embeddings ingestion.
-*   **Dual Chat Interface:**
-    *   **REST API:** Lightweight stateless QA.
-    *   **WebSocket Gateway:** Live streaming tokens with real-time citations and sources.
-*   **Smart Calendar Integration:** Automatically extracts academic events (dates, exams, deadlines) from RAG conversations and syncs them directly to the user's Google Calendar.
-*   **Announcement System:** Department-level and college-wide notification feeds with strict tenant isolation.
-*   **Admin Control Panel:** Complete user administration (CRUD/moderation), knowledge base control, system health dashboard (live connection checking), and recent activity feed.
+ChatWave is a production-grade, multi-tenant agentic AI platform for educational institutions. It allows students, faculty, and administrators to search and interact with institutional knowledge bases (syllabi, schedules, regulations, documents) scoped dynamically to their college and department.
 
 ---
 
-## 🛠️ Technology Stack
+## Quick start
 
-*   **Frontend:** React 19, Vite, Tailwind CSS, TanStack React Query v5, Framer Motion, Three.js (interactive canvas background).
-*   **Backend:** Node.js, Express.js (v5), Socket.io (WebSocket gateway), Multer (memory storage file uploads).
-*   **Database:** MongoDB, Mongoose (object mapping, query caching).
-*   **Vector Engine:** Qdrant Cloud (dense vector similarity searches, dynamic collections).
-*   **LLM Provider:** Google Gemini API (`@google/generative-ai` SDK) utilizing configurable models (e.g., `gemini-2.0-flash`, `gemini-2.5-flash`, `gemini-3.5-flash`) and `models/embedding-001` for text embeddings.
+```bash
+# 1. Backend (FastAPI)
+cd backend_py
+uv sync --all-extras
+cp .env.example .env       # edit secrets
+docker compose up -d mongo qdrant redis   # from repo root
+uv run uvicorn app.main:app --reload --port 8000
+uv run celery -A app.workers.celery_app.celery_app worker -l info
 
----
+# 2. Frontend (React)
+cd ../frontend
+cp .env.example .env       # default VITE_API_BASE_URL=http://localhost:8000
+npm install
+npm run dev                # http://localhost:5173
+```
 
-## 🔒 Security Design
+See `SETUP.md` for full instructions.
 
-*   **Authentication:** Session tokens are stored in secure, `HttpOnly`, and `SameSite=Lax` cookies (15m expiration for access tokens, 7d for refresh tokens).
-*   **Double-Submit CSRF Protection:** Mutating REST routes require a custom `X-CSRF-Token` header that matches the decrypted `csrf_token` cookie.
-*   **Role-Based Access Control (RBAC):** Strict middleware gating access to `student`, `faculty`, and `admin` routes.
-*   **Rate Limiting:** IP-level limits on endpoints (100 req/min) and strict limits on authentication routes (10 req/15min).
-
----
-
-## 📁 Repository Structure
+## Architecture
 
 ```
 chatwave/
-├── .github/workflows/   # CI/CD workflows (GitHub Actions)
-├── backend/
-│   ├── src/
-│   │   ├── config/      # Settings and Database configuration
-│   │   ├── controllers/ # Route handler controllers
-│   │   ├── middlewares/ # Auth, CSRF, Rate Limiting, Uploads
-│   │   ├── models/      # Mongoose schemas (User, Document, ChatLog, etc.)
-│   │   ├── providers/   # Gemini and Qdrant client wrappers
-│   │   ├── routes/      # REST API route mappings
-│   │   ├── services/    # Calendar sync, retrieval, socket services
-│   │   ├── utils/       # Ingestion parsers (PDF, DOCX, OCR) and chunker
-│   │   └── workers/     # Ingestion worker thread
-│   ├── tests/           # Integration tests and Load testing suite
-│   ├── app.js           # Express app setup
-│   └── server.js        # Bootstrapper
-├── frontend/
-│   ├── src/
-│   │   ├── components/  # Layout, Chat, Admin, Upload elements
-│   │   ├── context/     # React state Context (Auth)
-│   │   ├── hooks/       # React Query and WS hooks
-│   │   ├── pages/       # Login, Dashboard, Admin views
-│   │   └── services/    # Axios API service instances
-│   ├── package.json
-│   └── vite.config.js
+├── backend_py/            FastAPI + Beanie + LangGraph + LlamaIndex + Qdrant + LiteLLM
+├── frontend/              React 19 + Vite (proxies /api to FastAPI :8000)
+├── specs/                 Source-of-truth spec for v2
+├── CHATWAVE-INFO.md       v1 reference + transition plan (historical)
+├── .github/workflows/     CI for backend_py (ruff + pytest)
+└── docker-compose.yml     Local Mongo + Qdrant + Redis
 ```
 
----
+## Stack highlights
 
-## 🧪 Verification & QA
+- **API**: FastAPI on Python 3.12+
+- **Data models**: Pydantic v2 + Beanie ODM
+- **Primary DB**: MongoDB
+- **Vector DB**: Qdrant (per-tenant collections)
+- **RAG framework**: LlamaIndex
+- **Agent orchestration**: LangGraph
+- **Model gateway**: LiteLLM
+- **Background jobs**: Celery + Redis
+- **Parsing**: Docling primary, fallback loaders as needed
+- **Observability**: Langfuse
+- **Evals**: Ragas + DeepEval
+- **Frontend**: React 19 + Vite
 
-### Integration Tests
-Run the comprehensive suite of 17 integration tests testing endpoints, role permissions, RAG flows, and websocket streaming:
-```bash
-cd backend
-npm install
-npm test
-```
+## More
 
-### Load Testing
-Run high-concurrency autocannon stress tests verifying event loop stability and WebSocket round-trip efficiency:
-```bash
-cd backend
-node tests/load-runner.js
-```
-
----
-
-## 📄 License
-This project is licensed under the MIT License.
+- `specs/` — full specification (must-read)
+- `CHATWAVE-INFO.md` — v1 reference + transition plan
+- `SETUP.md` — environment setup
+- `backend_py/RETIRE_EXPRESS.md` — v1 retirement checklist (complete)

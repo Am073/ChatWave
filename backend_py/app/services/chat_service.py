@@ -1,4 +1,4 @@
-"""Chat service: end-to-end RAG + agent orchestration + ChatLog persistence.
+﻿"""Chat service: end-to-end RAG + agent orchestration + ChatLog persistence.
 
 Layered:
 1. Build AgentState from request + tenant context.
@@ -27,14 +27,14 @@ from app.schemas.chat import ChatIn
 log = get_logger(__name__)
 
 
-def resolve_model(model_override: str | None) -> str:
-    """Pick the chat model: explicit override > in-memory override > settings default."""
+async def resolve_model(model_override: str | None) -> str:
+    """Pick the chat model: explicit override > Redis override > settings default."""
     if model_override:
         return model_override
     # Allow runtime override (set via admin endpoint).
     from app.services.model_registry import get_active_chat_model
 
-    return get_active_chat_model() or get_settings().chat_model
+    return await get_active_chat_model() or get_settings().chat_model
 
 
 async def _finalize(
@@ -105,7 +105,7 @@ async def _finalize(
 async def answer(ctx: TenantContext, payload: ChatIn) -> dict:
     trace_id = new_trace_id()
     session_id = payload.sessionId or uuid.uuid4().hex
-    chat_model = resolve_model(payload.model)
+    chat_model = await resolve_model(payload.model)
     state = AgentState(
         user_id=ctx.user_id,
         role=ctx.role,  # type: ignore[arg-type]
@@ -136,7 +136,7 @@ async def answer_stream(
     """
     trace_id = new_trace_id()
     session_id = payload.sessionId or uuid.uuid4().hex
-    chat_model = resolve_model(payload.model)
+    chat_model = await resolve_model(payload.model)
     queue: asyncio.Queue = asyncio.Queue()
     state = AgentState(
         user_id=ctx.user_id,
@@ -199,7 +199,7 @@ async def list_history(
     Two modes:
     - `page` + `limit` (legacy): skip-based pagination.
     - `before` (cursor): only return logs strictly older than this timestamp.
-      Preferred for infinite scroll — no offset drift on new writes.
+      Preferred for infinite scroll â€” no offset drift on new writes.
     Returns `{logs, has_more, next_cursor, page, limit}`.
     """
     query: dict = {"user": ctx.user_id, "college_name": ctx.college_name}

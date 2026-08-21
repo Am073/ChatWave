@@ -166,8 +166,8 @@ async def admin_retry_document(
     user: Admin, _: CSRFDep, ctx: TenantContextDep, document_id: str
 ) -> dict:
     """Re-enqueue a failed document for ingestion."""
+    from app.core.errors import ForbiddenError, NotFoundError
     from app.models.document import DocumentRecord
-    from app.core.errors import NotFoundError, ForbiddenError
     from app.services.upload_service import retry_document
 
     doc = await DocumentRecord.get(document_id)
@@ -186,7 +186,7 @@ async def admin_get_model(user: Admin) -> dict:
     """Return the active chat model + available catalog."""
     from app.services.model_registry import get_model_status
 
-    return get_model_status()
+    return await get_model_status()
 
 
 @router.post("/model")
@@ -199,7 +199,7 @@ async def admin_set_model(user: Admin, _: CSRFDep, payload: dict) -> dict:
     if not model or not isinstance(model, str):
         raise ValidationAppError("Body must include a 'model' string")
     try:
-        return set_model_override(model)
+        return await set_model_override(model)
     except ValueError as exc:
         raise ValidationAppError(str(exc)) from exc
 
@@ -209,4 +209,4 @@ async def admin_clear_model(user: Admin, _: CSRFDep) -> dict:
     """Clear the active chat model override and revert to default."""
     from app.services.model_registry import clear_model_override
 
-    return clear_model_override()
+    return await clear_model_override()

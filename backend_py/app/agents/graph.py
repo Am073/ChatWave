@@ -81,6 +81,8 @@ async def context_retriever(state: AgentState) -> AgentState:
         state.agent_steps.append(
             {"node": "context_retriever", "sources": 0, "skipped": True}
         )
+        if state.token_queue is not None:
+            await state.token_queue.put({"sources": []})
         return state
 
     from app.api.deps import TenantContext
@@ -107,6 +109,8 @@ async def context_retriever(state: AgentState) -> AgentState:
     state.agent_steps.append(
         {"node": "context_retriever", "sources": len(state.sources)}
     )
+    if state.token_queue is not None:
+        await state.token_queue.put({"sources": state.sources})
     return state
 
 
@@ -143,16 +147,31 @@ async def answer_generator(state: AgentState) -> AgentState:
         college_name=state.college_name, role=state.role, department=state.department
     )
     user = build_answer_prompt(question=state.question, context=ctx_text or "(no context)")
+    messages = [
+        {"role": "system", "content": system},
+        {"role": "user", "content": user},
+    ]
     try:
-        resp = await litellm.acompletion(
-            model=model,
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user", "content": user},
-            ],
-            max_tokens=_settings.max_completion_tokens,
-        )
-        state.answer = resp["choices"][0]["message"]["content"] or ""
+        if state.token_queue is not None:
+            # Streaming run: forward each delta to the transport in real time.
+            stream = await litellm.acompletion(
+                model=model,
+                messages=messages,
+                max_tokens=_settings.max_completion_tokens,
+                stream=True,
+            )
+            async for chunk in stream:
+                delta = chunk["choices"][0]["delta"].get("content") or ""
+                if delta:
+                    state.answer += delta
+                    await state.token_queue.put(delta)
+        else:
+            resp = await litellm.acompletion(
+                model=model,
+                messages=messages,
+                max_tokens=_settings.max_completion_tokens,
+            )
+            state.answer = resp["choices"][0]["message"]["content"] or ""
     except Exception as exc:  # noqa: BLE001
         log.error("answer_gen_failed", error=str(exc))
         state.answer = (

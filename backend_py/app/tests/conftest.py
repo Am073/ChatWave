@@ -8,7 +8,10 @@ from __future__ import annotations
 import asyncio
 import os
 
-os.environ.setdefault("APP_ENV", "test")
+# Hard-override (not setdefault): `uv run` auto-loads .env, which ships
+# APP_ENV=development. Without this, the TestClient lifespan binds Beanie to
+# the production database while fixtures bind to *_test — splitting state.
+os.environ["APP_ENV"] = "test"
 
 import httpx  # noqa: E402
 import pytest  # noqa: E402

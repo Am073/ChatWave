@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import uuid
 from datetime import datetime
@@ -14,7 +15,6 @@ from app.api.deps import (
     CSRFDep,
     CurrentUser,
     TenantContextDep,
-    get_tenant_context,
     verify_access_token,
 )
 from app.core.errors import AuthError
@@ -70,36 +70,17 @@ async def stream(user: CurrentUser, ctx: TenantContextDep, question: str = ""):
 
     Security: auth is via same-site cookies (read in dep), not query params.
     Long-lived tokens are NEVER placed in query strings (Risk #4 mitigation).
+    Streams real LLM tokens as they are generated.
     """
 
     async def event_gen():
-        yield {"event": "status", "data": json.dumps({"stage": "started"})}
-        result = await chat_service.answer(ctx, ChatIn(question=question))
-        yield {"event": "sources", "data": json.dumps(result.get("sources", []))}
-
-        # Stream answer in ~4-char chunks
-        answer = result.get("answer", "")
-        chunk_size = 4
-        for i in range(0, len(answer), chunk_size):
-            chunk = answer[i : i + chunk_size]
-            yield {
-                "event": "token",
-                "data": json.dumps({"type": "token", "content": chunk}),
-            }
-            await asyncio.sleep(0.01)
-
-        yield {
-            "event": "final",
-            "data": json.dumps(
-                {
-                    "answer": answer,
-                    "traceId": result.get("traceId"),
-                    "model": result.get("model"),
-                    "confidence": result.get("confidence"),
-                    "detectedDates": result.get("detectedDates", []),
-                }
-            ),
-        }
+        agen = chat_service.answer_stream(ctx, ChatIn(question=question))
+        try:
+            async for ev in agen:
+                yield {"event": ev["event"], "data": json.dumps(ev["data"])}
+        finally:
+            # Client disconnected -> abort the in-flight agent/LLM call.
+            await agen.aclose()
 
     return EventSourceResponse(event_gen())
 
@@ -144,7 +125,7 @@ async def chat_ws(websocket: WebSocket) -> None:
         {"type": "ping"}     # keep-alive
       Server -> Client:
         {"type": "ready", "userId": "...", "sessionId": "..."}
-        {"type": "status", "stage": "searching"}
+        {"type": "status", "stage": "started"|"answered"|"cancelled"}
         {"type": "sources", "sources": [...]}
         {"type": "token", "content": "Your"}
         {"type": "final", "answer": "...", "traceId": "...", "model": "...", "confidence": "high"}
@@ -154,6 +135,10 @@ async def chat_ws(websocket: WebSocket) -> None:
     Auth: the same access_token cookie used by the HTTP routes is read from
     the WebSocket upgrade request. CSRF is not enforced for WS because the
     WebSocket spec doesn't support custom headers from browsers.
+
+    Concurrency: receive and stream run as competing tasks so cancel/ping
+    frames are processed WHILE an answer is streaming. Cancel hard-aborts
+    the in-flight LLM call (task cancellation), not just the frame forwarding.
     """
     user = await _resolve_ws_user(websocket)
     if user is None:
@@ -162,144 +147,111 @@ async def chat_ws(websocket: WebSocket) -> None:
     await websocket.accept()
 
     session_id = uuid.uuid4().hex
-    await websocket.send_json(
-        {"type": "ready", "userId": str(user.id), "sessionId": session_id}
-    )
+    send_lock = asyncio.Lock()
 
-    # Cancellation token for the currently streaming answer (if any).
-    cancel_event: asyncio.Event | None = None
+    async def send(frame: dict) -> None:
+        # Serialize sends: the receive loop (pong/error) and the stream task
+        # (status/sources/token/final) can fire concurrently.
+        async with send_lock:
+            await websocket.send_json(frame)
+
+    await send({"type": "ready", "userId": str(user.id), "sessionId": session_id})
+
+    recv_task = asyncio.create_task(websocket.receive_text())
     stream_task: asyncio.Task | None = None
+
+    async def _run_stream(
+        question: str, model: str | None, mode: str, client_session: str
+    ) -> None:
+        from app.api.deps import TenantContext
+
+        ctx = TenantContext(
+            user_id=str(user.id),
+            role=user.role,
+            college_name=user.college_name,
+            department=user.department,
+            college_id=user.college_id,
+        )
+        agen = chat_service.answer_stream(
+            ctx, ChatIn(question=question, model=model, mode=mode)
+        )
+        try:
+            async for ev in agen:
+                if ev["event"] == "status":
+                    await send({"type": "status", **ev["data"]})
+                elif ev["event"] == "sources":
+                    await send({"type": "sources", "sources": ev["data"]})
+                else:
+                    # token + final frames are already wire-shaped.
+                    await send(ev["data"])
+        except asyncio.CancelledError:
+            with contextlib.suppress(Exception):  # socket may already be gone
+                await send({"type": "status", "stage": "cancelled"})
+            raise
+        except AuthError as exc:
+            await send({"type": "error", "message": str(exc)})
+        except Exception as exc:  # noqa: BLE001
+            log.exception("ws_chat_failed", user_id=str(user.id), error=str(exc))
+            await send({"type": "error", "message": "Failed to generate answer"})
+        finally:
+            # Consumer gone or finished early -> abort agent/LLM call.
+            await agen.aclose()
 
     try:
         while True:
-            raw = await websocket.receive_text()
-            try:
-                msg = json.loads(raw)
-            except json.JSONDecodeError:
-                await websocket.send_json({"type": "error", "message": "Invalid JSON"})
-                continue
-            kind = msg.get("type")
-            if kind == "ping":
-                await websocket.send_json({"type": "pong"})
-                continue
-            if kind == "cancel":
-                # Signal the active stream to abort between token sends.
-                if cancel_event is not None:
-                    cancel_event.set()
-                await websocket.send_json({"type": "status", "stage": "cancelling"})
-                continue
-            if kind == "question":
-                # If a previous answer is still streaming, wait for it
-                # to finish (or be cancelled) before starting the next.
-                if stream_task is not None and not stream_task.done():
-                    try:
-                        await asyncio.wait_for(stream_task, timeout=10.0)
-                    except TimeoutError:
-                        stream_task.cancel()
-                question = (msg.get("content") or "").strip()
-                if not question:
-                    await websocket.send_json(
-                        {"type": "error", "message": "Question cannot be empty"}
-                    )
+            pending = {recv_task}
+            if stream_task is not None and not stream_task.done():
+                pending.add(stream_task)
+            done, _ = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+
+            if recv_task in done:
+                raw = recv_task.result()  # WebSocketDisconnect propagates
+                try:
+                    msg = json.loads(raw)
+                except json.JSONDecodeError:
+                    await send({"type": "error", "message": "Invalid JSON"})
+                    recv_task = asyncio.create_task(websocket.receive_text())
                     continue
-                model = msg.get("model")
-                mode = msg.get("mode", "college")
-                client_session = msg.get("sessionId") or session_id
-                cancel_event = asyncio.Event()
-                stream_task = asyncio.create_task(
-                    _stream_answer(
-                        websocket,
-                        user=user,
-                        question=question,
-                        model=model,
-                        mode=mode,
-                        session_id=client_session,
-                        cancel_event=cancel_event,
+                kind = msg.get("type")
+                if kind == "ping":
+                    await send({"type": "pong"})
+                elif kind == "cancel":
+                    if stream_task is not None and not stream_task.done():
+                        # Hard-cancel: aborts the LLM call; the stream task's
+                        # CancelledError handler emits the cancelled frame.
+                        stream_task.cancel()
+                    else:
+                        await send({"type": "status", "stage": "cancelled"})
+                elif kind == "question":
+                    question = (msg.get("content") or "").strip()
+                    if not question:
+                        await send(
+                            {"type": "error", "message": "Question cannot be empty"}
+                        )
+                    else:
+                        if stream_task is not None and not stream_task.done():
+                            stream_task.cancel()  # supersede in-flight answer
+                        stream_task = asyncio.create_task(
+                            _run_stream(
+                                question,
+                                msg.get("model"),
+                                msg.get("mode", "college"),
+                                msg.get("sessionId") or session_id,
+                            )
+                        )
+                else:
+                    await send(
+                        {"type": "error", "message": f"Unknown message type: {kind!r}"}
                     )
-                )
-                # Yield control so cancel can be processed while the stream runs.
-                await stream_task
-                continue
-            await websocket.send_json(
-                {"type": "error", "message": f"Unknown message type: {kind!r}"}
-            )
+                recv_task = asyncio.create_task(websocket.receive_text())
+
+            if stream_task is not None and stream_task in done:
+                with contextlib.suppress(asyncio.CancelledError):
+                    stream_task.result()  # surface unexpected crashes in tests
+                stream_task = None
     except WebSocketDisconnect:
         log.info("ws_disconnected", user_id=str(user.id))
+    finally:
+        recv_task.cancel()
         if stream_task is not None and not stream_task.done():
             stream_task.cancel()
-
-
-async def _stream_answer(
-    websocket: WebSocket,
-    *,
-    user: User,
-    question: str,
-    model: str | None,
-    mode: str,
-    session_id: str,
-    cancel_event: asyncio.Event | None = None,
-) -> None:
-    """Run the chat agent and stream tokens to the WebSocket client.
-
-    If `cancel_event` is set during the token loop, the loop aborts and
-    the client is notified. The agent call itself is not interruptible
-    without a deeper refactor of the LangGraph runner; the LLM cost of
-    the in-flight call is still incurred, but no further tokens are
-    sent to a (likely-stale) client.
-    """
-    from app.api.deps import TenantContext
-
-    ctx = TenantContext(
-        user_id=str(user.id),
-        role=user.role,
-        college_name=user.college_name,
-        department=user.department,
-        college_id=user.college_id,
-    )
-    await websocket.send_json({"type": "status", "stage": "started"})
-    try:
-        result = await chat_service.answer(
-            ctx, ChatIn(question=question, model=model, mode=mode)
-        )
-    except AuthError as exc:
-        await websocket.send_json({"type": "error", "message": str(exc)})
-        return
-    except Exception as exc:  # noqa: BLE001
-        log.exception("ws_chat_failed", user_id=str(user.id), error=str(exc))
-        await websocket.send_json(
-            {"type": "error", "message": "Failed to generate answer"}
-        )
-        return
-
-    if cancel_event is not None and cancel_event.is_set():
-        await websocket.send_json({"type": "status", "stage": "cancelled"})
-        return
-
-    await websocket.send_json({"type": "status", "stage": "answered"})
-    await websocket.send_json(
-        {"type": "sources", "sources": result.get("sources", [])}
-    )
-
-    # Stream the answer in small chunks to give a real-time typing effect.
-    answer = result.get("answer", "") or ""
-    chunk_size = 4
-    for i in range(0, len(answer), chunk_size):
-        if cancel_event is not None and cancel_event.is_set():
-            await websocket.send_json({"type": "status", "stage": "cancelled"})
-            return
-        await websocket.send_json(
-            {"type": "token", "content": answer[i : i + chunk_size]}
-        )
-        await asyncio.sleep(0.01)
-
-    await websocket.send_json(
-        {
-            "type": "final",
-            "answer": answer,
-            "traceId": result.get("traceId"),
-            "model": result.get("model"),
-            "confidence": result.get("confidence"),
-            "sessionId": result.get("sessionId") or session_id,
-            "detectedDates": result.get("detectedDates", []),
-        }
-    )

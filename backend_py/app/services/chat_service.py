@@ -8,8 +8,11 @@ Layered:
 """
 from __future__ import annotations
 
+import asyncio
 import uuid
+from collections.abc import AsyncIterator
 from datetime import UTC, datetime
+from typing import Any
 
 from app.agents.graph import run_agent
 from app.agents.state import AgentState
@@ -34,41 +37,32 @@ def resolve_model(model_override: str | None) -> str:
     return get_active_chat_model() or get_settings().chat_model
 
 
-async def answer(ctx: TenantContext, payload: ChatIn) -> dict:
+async def _finalize(
+    ctx: TenantContext,
+    final: AgentState,
+    chat_model: str,
+    session_id: str,
+    trace_id: str,
+) -> dict:
+    """Persist the ChatLog, emit tracing, extract dates, shape the API response."""
     tracer = get_tracer()
-    trace_id = new_trace_id()
-    session_id = payload.sessionId or uuid.uuid4().hex
-    chat_model = resolve_model(payload.model)
-    state = AgentState(
-        user_id=ctx.user_id,
-        role=ctx.role,  # type: ignore[arg-type]
-        college_name=ctx.college_name,
-        department=ctx.department,
-        question=payload.question,
-        session_id=session_id,
-        prompt_version="v2.0",
-        trace_id=trace_id,
-        mode=payload.mode or "college",
-    )
-    final = await run_agent(state, model_override=chat_model)
-    # Persist ChatLog
-    log_doc = ChatLog(
-        user=ctx.user_id,
-        college_name=ctx.college_name,
-        question=final.question,
-        answer=final.answer,
-        sources=final.sources,
-        session_id=session_id,
-        model=chat_model,
-        prompt_version=final.prompt_version,
-        trace_id=trace_id,
-        confidence=final.confidence,
-        quality_scores={},
-        agent_steps=final.agent_steps,
-        tokens_used=0,
-        created_at=datetime.now(UTC),
-    )
     try:
+        log_doc = ChatLog(
+            user=ctx.user_id,
+            college_name=ctx.college_name,
+            question=final.question,
+            answer=final.answer,
+            sources=final.sources,
+            session_id=session_id,
+            model=chat_model,
+            prompt_version=final.prompt_version,
+            trace_id=trace_id,
+            confidence=final.confidence,
+            quality_scores={},
+            agent_steps=final.agent_steps,
+            tokens_used=0,
+            created_at=datetime.now(UTC),
+        )
         await log_doc.insert()
     except Exception as exc:  # noqa: BLE001
         # Logged at error level + a counter so operators see the failure rate
@@ -106,6 +100,92 @@ async def answer(ctx: TenantContext, payload: ChatIn) -> dict:
         "confidence": final.confidence,
         "detectedDates": [d.to_dict() for d in detected],
     }
+
+
+async def answer(ctx: TenantContext, payload: ChatIn) -> dict:
+    trace_id = new_trace_id()
+    session_id = payload.sessionId or uuid.uuid4().hex
+    chat_model = resolve_model(payload.model)
+    state = AgentState(
+        user_id=ctx.user_id,
+        role=ctx.role,  # type: ignore[arg-type]
+        college_name=ctx.college_name,
+        department=ctx.department,
+        question=payload.question,
+        session_id=session_id,
+        prompt_version="v2.0",
+        trace_id=trace_id,
+        mode=payload.mode or "college",
+    )
+    final = await run_agent(state, model_override=chat_model)
+    return await _finalize(ctx, final, chat_model, session_id, trace_id)
+
+
+_DONE = object()  # sentinel: agent run finished
+
+
+async def answer_stream(
+    ctx: TenantContext, payload: ChatIn
+) -> AsyncIterator[dict[str, Any]]:
+    """Run the agent and yield tagged events as they happen.
+
+    Yields: {"event": "status"|"sources"|"token"|"final", "data": dict}.
+    Real LLM tokens are forwarded as they arrive (no post-hoc chunking).
+    If the consumer stops early (client disconnect / cancel), the underlying
+    agent task is cancelled, which aborts the in-flight LLM call.
+    """
+    trace_id = new_trace_id()
+    session_id = payload.sessionId or uuid.uuid4().hex
+    chat_model = resolve_model(payload.model)
+    queue: asyncio.Queue = asyncio.Queue()
+    state = AgentState(
+        user_id=ctx.user_id,
+        role=ctx.role,  # type: ignore[arg-type]
+        college_name=ctx.college_name,
+        department=ctx.department,
+        question=payload.question,
+        session_id=session_id,
+        prompt_version="v2.0",
+        trace_id=trace_id,
+        mode=payload.mode or "college",
+        token_queue=queue,
+    )
+
+    async def _run() -> AgentState:
+        try:
+            return await run_agent(state, model_override=chat_model)
+        finally:
+            queue.put_nowait(_DONE)
+
+    task = asyncio.create_task(_run())
+    try:
+        yield {"event": "status", "data": {"stage": "started"}}
+        while True:
+            item = await queue.get()
+            if item is _DONE:
+                break
+            if isinstance(item, str):
+                yield {"event": "token", "data": {"type": "token", "content": item}}
+            else:
+                yield {"event": "status", "data": {"stage": "answered"}}
+                yield {"event": "sources", "data": item["sources"]}
+        final = await task
+        result = await _finalize(ctx, final, chat_model, session_id, trace_id)
+        yield {
+            "event": "final",
+            "data": {
+                "type": "final",
+                "answer": result["answer"],
+                "traceId": result["traceId"],
+                "model": result["model"],
+                "confidence": result["confidence"],
+                "sessionId": session_id,
+                "detectedDates": result["detectedDates"],
+            },
+        }
+    finally:
+        if not task.done():
+            task.cancel()
 
 
 async def list_history(

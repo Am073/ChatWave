@@ -40,3 +40,6 @@ class AgentState(BaseModel):
     finished: bool = False
     # Optional per-run model override (e.g. admin wants to test Claude vs Gemini).
     model_override: str | None = None
+    # Live token sink for streaming transports (SSE/WS). None = non-streaming run.
+    # Holds an asyncio.Queue; str items are answer tokens, dicts are control events.
+    token_queue: Any = Field(default=None, exclude=True, repr=False)

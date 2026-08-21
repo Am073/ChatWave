@@ -27,7 +27,7 @@ const TABS = [
 export default function AdminDashboard() {
   const [activeTab, setActiveTab] = useState("overview");
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const { stats, loading: statsLoading } = useAdminStats();
+  const { stats } = useAdminStats();
   const [activities, setActivities] = useState([]);
   const [health, setHealth] = useState(null);
   const [loadingExtras, setLoadingExtras] = useState(true);

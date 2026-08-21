@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import api from '../../services/api';
 import { retryDocument as apiRetryDocument } from '../../services/uploadService';
-import { cn } from '../../utils/cn';
 
 const FILE_EMOJIS = { pdf: '📄', word: '📝', excel: '📊', image: '🖼' };
 
@@ -21,7 +20,7 @@ const STATUS_CONFIG = {
   pending:    { label: '⏳ Pending',     cls: 'bg-white/[0.06] text-cw-t3' },
 };
 
-export default function UploadedDocumentsList({ collegeName, refreshTrigger }) {
+export default function UploadedDocumentsList({ refreshTrigger }) {
   const [docs, setDocs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState(null);

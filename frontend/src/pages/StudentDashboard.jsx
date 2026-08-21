@@ -8,7 +8,6 @@ import BottomNav from "../components/Layout/BottomNav";
 import SettingsModal from "../components/Settings/SettingsModal";
 import { useCalendarConnectionToast } from "../hooks/useCalendarIntegration";
 import { useAnnouncementStream } from "../hooks/useAnnouncementStream";
-import { timeAgo } from "../utils/dateHelpers";
 import { cn } from "../utils/cn";
 
 const mapAnnouncement = (a, userId) => ({
@@ -42,7 +41,11 @@ export default function StudentDashboard() {
   };
 
   useEffect(() => {
+    // Initial fetch: fetchData is async, so its setStates run after await,
+    // never synchronously during the effect.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Live SSE announcements: merge newly pushed items into feed + unread badge.

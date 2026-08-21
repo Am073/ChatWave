@@ -20,7 +20,7 @@ export function AuthProvider({ children }) {
         // unauthenticated visit does not cause a refresh-fail-retry loop.
         const res = await api.get('/auth/me', { _skipAuthRefresh: true });
         if (!cancelled) setUser(res.data);
-      } catch (error) {
+      } catch {
         if (!cancelled) {
           console.warn('No active session found on load.');
           setUser(null);
@@ -82,4 +82,7 @@ export function AuthProvider({ children }) {
   );
 }
 
+// Provider + hook in one file is the standard context pattern; the
+// fast-refresh warning is a known trade-off for context modules.
+// eslint-disable-next-line react-refresh/only-export-components
 export const useAuth = () => useContext(AuthContext);

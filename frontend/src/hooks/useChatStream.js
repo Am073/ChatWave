@@ -28,7 +28,7 @@ function buildWsUrl() {
   return `${base}/api/chat/ws`;
 }
 
-export function useChatStream(userId, collegeName) {
+export function useChatStream(userId) {
   const [messages, setMessages] = useState([]);
   const [isTyping, setIsTyping] = useState(false);
   const [connected, setConnected] = useState(false);
@@ -107,9 +107,11 @@ export function useChatStream(userId, collegeName) {
 
   useEffect(() => {
     if (!userId) {
-      setConnected(false);
       return undefined;
     }
+    // connect() only registers WebSocket event callbacks; the setStates the
+    // lint rule traces all fire asynchronously from those callbacks.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     connect();
     return () => {
       if (reconnectTimerRef.current) {
@@ -124,6 +126,7 @@ export function useChatStream(userId, collegeName) {
         wsRef.current.close();
         wsRef.current = null;
       }
+      setConnected(false);
     };
   }, [userId, connect]);
 

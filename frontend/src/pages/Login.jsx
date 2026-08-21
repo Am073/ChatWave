@@ -29,7 +29,7 @@ export default function Login() {
     } catch (err) {
       // If CSRF token is stale (403), silently refresh it and show a friendly message
       if (err.response?.status === 403) {
-        try { await getCsrfToken(); } catch (_) { /* ignore */ }
+        try { await getCsrfToken(); } catch { /* ignore */ }
         setError("Session expired. Please try signing in again.");
       } else {
         setError(err.response?.data?.error || err.response?.data?.detail || "Login failed. Please check your credentials.");

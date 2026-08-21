@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import CalendarButton from './CalendarButton';
 import BulkDatePicker from './BulkDatePicker';
@@ -17,19 +17,10 @@ export default function ChatMessage({ message, onAddCalendar }) {
   const initials = isBot ? 'CW' : (user?.name?.charAt(0) || 'U');
 
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [detectedDates, setDetectedDates] = useState(
-    () => message.detectedDates || (message.detectedDate ? [message.detectedDate] : []),
-  );
-
-  // If the parent updates the message (e.g. after the WS final frame),
-  // re-sync the detected dates.
-  useEffect(() => {
-    if (message.detectedDates) {
-      setDetectedDates(message.detectedDates);
-    } else if (message.detectedDate) {
-      setDetectedDates([message.detectedDate]);
-    }
-  }, [message.detectedDates, message.detectedDate]);
+  // Derived from props each render — the parent re-syncs us after the WS
+  // final frame arrives, so no local mirror state is needed.
+  const detectedDates = message.detectedDates
+    || (message.detectedDate ? [message.detectedDate] : []);
 
   const handleOpenPicker = useCallback(() => {
     setPickerOpen(true);

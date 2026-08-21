@@ -19,7 +19,6 @@ export function useAnnouncementStream(userId) {
 
   useEffect(() => {
     if (!userId) {
-      setConnected(false);
       return undefined;
     }
     let cancelled = false;
@@ -59,6 +58,7 @@ export function useAnnouncementStream(userId) {
       cancelled = true;
       if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
       if (esRef.current) esRef.current.close();
+      setConnected(false);
     };
   }, [userId]);
 

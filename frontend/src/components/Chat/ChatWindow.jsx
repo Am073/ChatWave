@@ -76,7 +76,7 @@ export default function ChatWindow({ userId, collegeName }) {
             setHasMoreHistory(res.data?.has_more || logs.length === 30);
           }
         }
-      } catch (err) {
+      } catch {
         // Fallback: load from localStorage (works offline, survives page refresh)
         const local = loadLocalMessages();
         if (local.length > 0) {

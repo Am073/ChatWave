@@ -28,7 +28,16 @@ async def _search_documents_impl(
     top_k: int = 5,
     trace_id: str | None = None,
 ) -> list[dict[str, Any]]:
-    result = await retrieve(ctx=ctx, query=query, top_k=top_k)
+    try:
+        result = await retrieve(ctx=ctx, query=query, top_k=top_k)
+    except Exception as exc:  # noqa: BLE001 - vector DB down must not kill chat
+        log.warning(
+            "search_documents_failed",
+            error=str(exc),
+            tenant=ctx.college_name,
+            trace_id=trace_id,
+        )
+        result = []
     audit_tool_call(
         tool="search_documents",
         user_id=ctx.user_id,
@@ -47,7 +56,16 @@ async def _get_announcements_impl(
     limit: int = 10,
     trace_id: str | None = None,
 ) -> list[dict[str, Any]]:
-    docs = await list_visible_announcements(ctx, limit=limit)
+    try:
+        docs = await list_visible_announcements(ctx, limit=limit)
+    except Exception as exc:  # noqa: BLE001 - DB down must not kill chat
+        log.warning(
+            "get_announcements_failed",
+            error=str(exc),
+            tenant=ctx.college_name,
+            trace_id=trace_id,
+        )
+        docs = []
     result = [
         {
             "id": str(a.id),

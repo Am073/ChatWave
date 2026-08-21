@@ -5,6 +5,8 @@ import json
 from pathlib import Path
 
 from app.evals.run_agent_evals import run as run_agent
+from app.evals.run_rag_evals import THRESHOLDS
+from app.evals.run_rag_evals import run as run_rag
 
 
 def test_agent_eval_runner_smoke():
@@ -12,6 +14,14 @@ def test_agent_eval_runner_smoke():
     assert report["status"] == "ok"
     assert report["tenant_isolation"]["blocked"] >= 1
     assert report["injection"]["true_positives"] >= 1
+
+
+def test_rag_eval_offline_report():
+    report = run_rag()
+    assert report["status"] == "ok"
+    assert report["mode"] == "offline"
+    assert report["count"] >= 1
+    assert report["thresholds"] == THRESHOLDS
 
 
 def test_datasets_are_valid_jsonl():

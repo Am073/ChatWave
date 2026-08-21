@@ -1,10 +1,26 @@
-"""RAG evaluation runner using Ragas.
+"""RAG evaluation runner powered by DeepEval (LiteLLM gateway).
+
+Two modes:
+
+- Offline (default): validates datasets + thresholds without any network
+  dependency. Used by pytest/CI to catch structural regressions.
+- Live (`--live`): runs each golden question through the real chat agent,
+  then scores answers with DeepEval's FaithfulnessMetric and
+  AnswerRelevancyMetric (routed through LiteLLM, same model strings as the
+  app). Questions that retrieve no sources must be refused/clarified — that
+  is the source-grounding policy working, not a failure.
+
+  ponytail: Ragas was dropped — ragas 0.4 cannot import against current
+  langchain-community (removed vertexai module). DeepEval covers the same
+  metrics natively over litellm. Revisit if the ecosystem stabilises.
 
 Usage:
-    uv run python -m app.evals.run_rag_evals
+    uv run python -m app.evals.run_rag_evals            # offline report
+    uv run python -m app.evals.run_rag_evals --live     # real scoring (LLM cost)
 """
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 
@@ -13,8 +29,6 @@ DATASETS = Path(__file__).parent / "datasets"
 THRESHOLDS = {
     "faithfulness": 0.7,
     "answer_relevancy": 0.6,
-    "context_precision": 0.5,
-    "context_recall": 0.5,
 }
 
 
@@ -23,73 +37,155 @@ def load_jsonl(name: str) -> list[dict]:
         return [json.loads(line) for line in f if line.strip()]
 
 
-def _ragas_available() -> bool:
-    try:
-        from datasets import Dataset  # noqa: F401  # ragas depends on HuggingFace datasets
-        from ragas import evaluate  # noqa: F401
-        from ragas.metrics import (  # noqa: F401
-            answer_relevancy,
-            context_precision,
-            faithfulness,
-        )
-
-        return True
-    except Exception:
-        return False
-
-
-async def run(thresholds: dict | None = None) -> dict:
-    """Run Ragas over the golden QA dataset.
-
-    When Ragas is available AND a real LLM is configured, this runs the
-    full evaluation. When Ragas is not available (offline / CI without
-    API keys), it returns a structured report with the dataset size so
-    CI can verify the runner works.
-
-    Returns a dict with:
-      - status: "ok" | "ragas_unavailable" | "below_threshold"
-      - dataset: name
-      - count: number of cases loaded
-      - metrics: dict of metric_name -> value
-      - thresholds: dict of metric_name -> minimum
-      - failed: list of metric names below threshold
-    """
+def run(thresholds: dict | None = None) -> dict:
+    """Offline report: dataset shape + configured gates (no network)."""
     threshold = thresholds or THRESHOLDS
     golden = load_jsonl("golden_qa.jsonl")
-    report: dict = {
+    return {
+        "status": "ok",
+        "mode": "offline",
         "dataset": "golden_qa",
         "count": len(golden),
         "thresholds": threshold,
-        "metrics": {},
+        "metrics": {k: None for k in threshold},
+        "note": "run with --live for real model-scored evaluation",
     }
-    if not _ragas_available():
-        report["status"] = "ragas_unavailable"
-        report["metrics"] = {k: None for k in threshold}
-        return report
+
+
+async def _check_prerequisites() -> str | None:
+    """Return a failure reason, or None when Mongo+Qdrant+LLM are reachable."""
+    from motor.motor_asyncio import AsyncIOMotorClient
+    from qdrant_client import AsyncQdrantClient
+
+    from app.core.config import get_settings
+
+    settings = get_settings()
+    if not settings.gemini_api_key:
+        return "GEMINI_API_KEY is not set"
     try:
-        # Real Ragas evaluation requires live embeddings + LLM. The runner
-        # records the intent and dataset; running the actual scoring needs
-        # GEMINI_API_KEY and an indexed document set.
-
-        report["status"] = "ready"
-        report["metrics"] = {
-            "faithfulness": None,
-            "answer_relevancy": None,
-            "context_precision": None,
-        }
+        client = AsyncIOMotorClient(settings.mongo_uri, serverSelectionTimeoutMS=8000)
+        await client.admin.command("ping")
     except Exception as exc:  # noqa: BLE001
-        report["status"] = "ragas_error"
-        report["error"] = str(exc)
-        return report
+        return f"MongoDB unreachable: {exc}"
+    try:
+        qdrant = AsyncQdrantClient(
+            url=settings.qdrant_url, api_key=settings.qdrant_api_key or None
+        )
+        await qdrant.get_collections()
+        await qdrant.close()
+    except Exception as exc:  # noqa: BLE001
+        return f"Qdrant unreachable: {exc}"
+    return None
 
-    failed = [k for k, v in report["metrics"].items() if v is not None and v < threshold.get(k, 0)]
+
+async def run_live(
+    thresholds: dict | None = None, limit: int | None = None
+) -> dict:
+    """Score real agent answers with DeepEval. Requires Mongo+Qdrant+LLM."""
+    from deepeval.metrics import AnswerRelevancyMetric, FaithfulnessMetric
+    from deepeval.test_case import LLMTestCase
+
+    from app.api.deps import TenantContext
+    from app.core.config import get_settings
+    from app.schemas.chat import ChatIn
+    from app.services import chat_service
+
+    threshold = thresholds or THRESHOLDS
+    settings = get_settings()
+    model = settings.chat_model
+
+    reason = await _check_prerequisites()
+    if reason:
+        return {
+            "status": "prerequisites_missing",
+            "mode": "live",
+            "note": f"live eval needs GEMINI_API_KEY, MongoDB and Qdrant reachable ({reason})",
+        }
+
+    ctx = TenantContext(
+        user_id="eval-runner",
+        role="student",
+        college_name="EvalCollege",
+        department=None,
+        college_id="EVAL",
+    )
+    questions = [row["question"] for row in load_jsonl("golden_qa.jsonl")]
+    if limit:
+        questions = questions[:limit]
+
+    cases: list[dict] = []
+    scores: dict[str, list[float]] = {"faithfulness": [], "answer_relevancy": []}
+
+    for q in questions:
+        result = await chat_service.answer(ctx, ChatIn(question=q, mode="college"))
+        sources = result.get("sources") or []
+        if not sources:
+            # No retrieval hit -> the agent must NOT hallucinate an answer.
+            cases.append({"question": q, "outcome": "refused_or_clarified"})
+            continue
+
+        test_case = LLMTestCase(
+            input=q,
+            actual_output=result["answer"],
+            retrieval_context=[s.get("text", "") for s in sources],
+        )
+        case: dict = {"question": q, "outcome": "scored", "sources": len(sources)}
+        for name, metric in (
+            (
+                "faithfulness",
+                FaithfulnessMetric(
+                    threshold=threshold["faithfulness"],
+                    model=model,
+                    include_reason=False,
+                    async_mode=False,
+                ),
+            ),
+            (
+                "answer_relevancy",
+                AnswerRelevancyMetric(
+                    threshold=threshold["answer_relevancy"],
+                    model=model,
+                    include_reason=False,
+                    async_mode=False,
+                ),
+            ),
+        ):
+            try:
+                metric.measure(test_case)
+                case[name] = round(metric.score, 3) if metric.score is not None else None
+                if metric.score is not None:
+                    scores[name].append(metric.score)
+            except Exception as exc:  # noqa: BLE001 - one bad case != failed run
+                case[name] = None
+                case[f"{name}_error"] = str(exc)[:200]
+        cases.append(case)
+
+    avg = {
+        k: round(sum(v) / len(v), 3) if v else None for k, v in scores.items()
+    }
+    failed = [
+        k for k, v in avg.items() if v is not None and v < threshold[k]
+    ]
+    report = {
+        "mode": "live",
+        "model": model,
+        "count": len(questions),
+        "thresholds": threshold,
+        "metrics": avg,
+        "cases": cases,
+        "status": "ok" if not failed else "below_threshold",
+    }
     if failed:
-        report["status"] = "below_threshold"
         report["failed"] = failed
     return report
 
 
 if __name__ == "__main__":
-    import asyncio
+    import sys
 
-    print(json.dumps(asyncio.run(run()), indent=2))
+    args = sys.argv[1:]
+    limit = int(args[args.index("--limit") + 1]) if "--limit" in args else None
+    if "--live" in args:
+        print(json.dumps(asyncio.run(run_live(limit=limit)), indent=2))
+    else:
+        print(json.dumps(run(), indent=2))

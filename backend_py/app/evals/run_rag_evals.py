@@ -5,10 +5,12 @@ Two modes:
 - Offline (default): validates datasets + thresholds without any network
   dependency. Used by pytest/CI to catch structural regressions.
 - Live (`--live`): runs each golden question through the real chat agent,
-  then scores answers with DeepEval's FaithfulnessMetric and
-  AnswerRelevancyMetric (routed through LiteLLM, same model strings as the
-  app). Questions that retrieve no sources must be refused/clarified — that
-  is the source-grounding policy working, not a failure.
+  then scores answers with DeepEval (routed through LiteLLM, same model
+  strings as the app). Generation-side: FaithfulnessMetric +
+  AnswerRelevancyMetric. Retrieval-side: ContextualPrecisionMetric +
+  ContextualRecallMetric, scored only for rows that carry a `ground_truth`
+  answer. Questions that retrieve no sources must be refused/clarified —
+  that is the source-grounding policy working, not a failure.
 
   ponytail: Ragas was dropped — ragas 0.4 cannot import against current
   langchain-community (removed vertexai module). DeepEval covers the same
@@ -27,8 +29,13 @@ from pathlib import Path
 DATASETS = Path(__file__).parent / "datasets"
 
 THRESHOLDS = {
+    # Generation-side: is the answer grounded in what was retrieved?
     "faithfulness": 0.7,
     "answer_relevancy": 0.6,
+    # Retrieval-side (needs ground_truth per row): did we rank the right
+    # context top, and does it cover the reference answer?
+    "contextual_precision": 0.5,
+    "contextual_recall": 0.5,
 }
 
 
@@ -81,8 +88,19 @@ async def _check_prerequisites() -> str | None:
 async def run_live(
     thresholds: dict | None = None, limit: int | None = None
 ) -> dict:
-    """Score real agent answers with DeepEval. Requires Mongo+Qdrant+LLM."""
-    from deepeval.metrics import AnswerRelevancyMetric, FaithfulnessMetric
+    """Score real agent answers with DeepEval. Requires Mongo+Qdrant+LLM.
+
+    Generation-side metrics (faithfulness, answer relevancy) run on every
+    scored case. Retrieval-side metrics (contextual precision/recall) need a
+    ground-truth answer per dataset row; rows without one are skipped for
+    those two metrics only.
+    """
+    from deepeval.metrics import (
+        AnswerRelevancyMetric,
+        ContextualPrecisionMetric,
+        ContextualRecallMetric,
+        FaithfulnessMetric,
+    )
     from deepeval.test_case import LLMTestCase
 
     from app.api.deps import TenantContext
@@ -109,14 +127,20 @@ async def run_live(
         department=None,
         college_id="EVAL",
     )
-    questions = [row["question"] for row in load_jsonl("golden_qa.jsonl")]
+    rows = load_jsonl("golden_qa.jsonl")
     if limit:
-        questions = questions[:limit]
+        rows = rows[:limit]
 
     cases: list[dict] = []
-    scores: dict[str, list[float]] = {"faithfulness": [], "answer_relevancy": []}
+    scores: dict[str, list[float]] = {
+        "faithfulness": [],
+        "answer_relevancy": [],
+        "contextual_precision": [],
+        "contextual_recall": [],
+    }
 
-    for q in questions:
+    for row in rows:
+        q = row["question"]
         result = await chat_service.answer(ctx, ChatIn(question=q, mode="college"))
         sources = result.get("sources") or []
         if not sources:
@@ -124,33 +148,48 @@ async def run_live(
             cases.append({"question": q, "outcome": "refused_or_clarified"})
             continue
 
+        ground_truth = row.get("ground_truth")
         test_case = LLMTestCase(
             input=q,
             actual_output=result["answer"],
+            expected_output=ground_truth or result["answer"],
             retrieval_context=[s.get("text", "") for s in sources],
         )
         case: dict = {"question": q, "outcome": "scored", "sources": len(sources)}
-        for name, metric in (
+        metric_specs = [
             (
                 "faithfulness",
-                FaithfulnessMetric(
-                    threshold=threshold["faithfulness"],
-                    model=model,
-                    include_reason=False,
-                    async_mode=False,
-                ),
+                FaithfulnessMetric,
+                threshold["faithfulness"],
             ),
             (
                 "answer_relevancy",
-                AnswerRelevancyMetric(
-                    threshold=threshold["answer_relevancy"],
-                    model=model,
-                    include_reason=False,
-                    async_mode=False,
-                ),
+                AnswerRelevancyMetric,
+                threshold["answer_relevancy"],
             ),
-        ):
+        ]
+        if ground_truth:
+            # Retrieval-side gates: is the right context ranked top, and does
+            # it cover the reference answer? Meaningless without ground truth.
+            metric_specs += [
+                (
+                    "contextual_precision",
+                    ContextualPrecisionMetric,
+                    threshold["contextual_precision"],
+                ),
+                (
+                    "contextual_recall",
+                    ContextualRecallMetric,
+                    threshold["contextual_recall"],
+                ),
+            ]
+        else:
+            case["contextual_skipped"] = "no ground_truth in dataset row"
+        for name, metric_cls, thr in metric_specs:
             try:
+                metric = metric_cls(
+                    threshold=thr, model=model, include_reason=False, async_mode=False
+                )
                 metric.measure(test_case)
                 case[name] = round(metric.score, 3) if metric.score is not None else None
                 if metric.score is not None:
@@ -169,7 +208,7 @@ async def run_live(
     report = {
         "mode": "live",
         "model": model,
-        "count": len(questions),
+        "count": len(rows),
         "thresholds": threshold,
         "metrics": avg,
         "cases": cases,

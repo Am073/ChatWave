@@ -85,7 +85,7 @@ async def db_session():
     import app.core.db as db
 
     db._motor_client = AsyncIOMotorClient(
-        settings.mongo_uri, serverSelectionTimeoutMS=10000, connectTimeoutMS=10000
+        settings.mongo_uri, serverSelectionTimeoutMS=30000, connectTimeoutMS=10000
     )
     await db._motor_client.admin.command("ping")
     db_name = db._motor_client.get_default_database().name

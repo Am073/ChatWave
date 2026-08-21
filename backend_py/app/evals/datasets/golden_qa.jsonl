@@ -1,3 +1,3 @@
-{"question": "What are the office hours for the registrar?", "expected_answer_contains": ["registrar"], "expected_documents": []}
-{"question": "When does the fall semester start?", "expected_answer_contains": ["august", "september"], "expected_documents": []}
-{"question": "What is the fee for late registration?", "expected_answer_contains": ["fee"], "expected_documents": []}
+{"question": "What are the office hours for the registrar?", "expected_answer_contains": ["registrar"], "expected_documents": [], "ground_truth": "The registrar's office is open Monday through Friday from 9:00 AM to 5:00 PM. Students can visit for transcript requests, enrollment verification, and registration help."}
+{"question": "When does the fall semester start?", "expected_answer_contains": ["august", "september"], "expected_documents": [], "ground_truth": "The fall semester begins in late August, with orientation activities in the week before classes start. Exact dates are published in the academic calendar each year."}
+{"question": "What is the fee for late registration?", "expected_answer_contains": ["fee"], "expected_documents": [], "ground_truth": "A late registration fee applies to students who enroll after the published deadline. The fee amount and waiver conditions are listed in the fees schedule; contact the registrar for the current figure."}

@@ -72,6 +72,10 @@ class Settings(BaseSettings):
 
     # ---- Upload limits ----
     max_upload_mb: int = 50
+    # Local directory where uploaded files are kept so failed ingestions can
+    # be retried without a re-upload. ponytail: single-node local disk; swap
+    # for S3/GCS object storage when the API and workers run on many hosts.
+    upload_dir: str = "uploads"
     allowed_mime_types: tuple[str, ...] = (
         "application/pdf",
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",

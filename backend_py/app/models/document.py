@@ -22,6 +22,8 @@ class DocumentRecord(Document):
     qdrant_ids: list[str] = Field(default_factory=list)
     embedding_model: str | None = None
     error_message: str | None = None
+    # Local path of the stored upload bytes; enables retry without re-upload.
+    storage_path: str | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 

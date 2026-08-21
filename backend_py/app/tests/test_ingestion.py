@@ -70,3 +70,44 @@ def test_document_status_enum_in_model():
     from typing import get_args
 
     assert set(get_args(DocumentStatus)) == {"pending", "processing", "completed", "failed"}
+
+
+async def test_retry_reenqueues_from_stored_file(db_session, monkeypatch, tmp_path):
+    from app.models.document import DocumentRecord
+    from app.services import upload_service
+
+    f = tmp_path / "stored.pdf"
+    f.write_bytes(b"%PDF-1.4 test")
+    doc = DocumentRecord(
+        uploader="u1",
+        college_name="TestU",
+        filename="stored.pdf",
+        file_type="application/pdf",
+        storage_path=str(f),
+    )
+    await doc.insert()
+
+    calls = []
+    monkeypatch.setattr(
+        upload_service, "enqueue_ingestion", lambda **kw: calls.append(kw)
+    )
+    result = await upload_service.retry_document(doc)
+    assert result["status"] == "pending"
+    assert "re-enqueued" in result["message"]
+    assert len(calls) == 1 and calls[0]["file_path"] == str(f)
+
+
+async def test_retry_asks_for_reupload_when_file_gone(db_session):
+    from app.models.document import DocumentRecord
+    from app.services import upload_service
+
+    doc = DocumentRecord(
+        uploader="u1",
+        college_name="TestU",
+        filename="gone.pdf",
+        file_type="application/pdf",
+        storage_path="Z:/does/not/exist.pdf",
+    )
+    await doc.insert()
+    result = await upload_service.retry_document(doc)
+    assert "re-upload" in result["message"]

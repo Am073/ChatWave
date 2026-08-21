@@ -5,8 +5,6 @@ message, can be re-enqueued via admin endpoint).
 """
 from __future__ import annotations
 
-import contextlib
-import os
 from datetime import UTC, datetime
 from typing import Any
 
@@ -40,9 +38,9 @@ def ingest_document(
 ) -> dict[str, Any]:
     """Parse + chunk + embed + index a single document for one tenant.
 
-    On retryable failures, raises so Celery schedules a retry (the temp file
-    is preserved for the next attempt). On permanent failure (retries
-    exhausted) or success, the temp file is deleted.
+    On retryable failures, raises so Celery schedules a retry. The stored
+    file is NEVER deleted here — its lifecycle (retry, delete) is owned by
+    upload_service via DocumentRecord.storage_path.
     """
     import asyncio
 
@@ -53,9 +51,6 @@ def ingest_document(
             )
         )
     except Exception as exc:  # noqa: BLE001
-        # Schedule a retry. The Celery worker holds onto the temp file across retries.
-        # On the last attempt, this re-raises and the task is marked FAILED; the
-        # caller's on_failure hook below then cleans up the file.
         try:
             raise self.retry(exc=exc)
         except self.MaxRetriesExceededError:
@@ -64,8 +59,6 @@ def ingest_document(
                 document_id=document_id,
                 error=str(exc),
             )
-            with contextlib.suppress(OSError):
-                os.unlink(file_path)
             raise
 
 
@@ -81,8 +74,6 @@ async def _run_ingestion(
     doc = await DocumentRecord.get(document_id)
     if doc is None:
         log.warning("ingest_doc_missing", document_id=document_id)
-        with contextlib.suppress(OSError):
-            os.unlink(file_path)
         return {"ok": False, "reason": "doc_missing"}
     if doc.college_name != college_name:
         log.error(
@@ -91,8 +82,6 @@ async def _run_ingestion(
             doc_tenant=doc.college_name,
             claimed=college_name,
         )
-        with contextlib.suppress(OSError):
-            os.unlink(file_path)
         return {"ok": False, "reason": "tenant_mismatch"}
 
     doc.status = "processing"
@@ -135,7 +124,5 @@ async def _run_ingestion(
             },
         )
     log.info("ingest_completed", document_id=document_id, chunks=len(chunks))
-    # Success: temp file no longer needed.
-    with contextlib.suppress(OSError):
-        os.unlink(file_path)
+    # Stored file is kept on purpose: enables admin/user retry and re-ingestion.
     return {"ok": True, "chunk_count": len(chunks), "qdrant_ids": len(qdrant_ids)}

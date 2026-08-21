@@ -7,7 +7,12 @@ app.workers.ingestion_tasks.
 """
 from __future__ import annotations
 
+import contextlib
+import os
 import re
+import uuid
+from datetime import UTC, datetime
+from pathlib import Path
 
 from fastapi import UploadFile
 
@@ -28,6 +33,20 @@ _SLUG_RE = re.compile(r"[^a-z0-9]+")
 def _slugify(name: str) -> str:
     slug = _SLUG_RE.sub("_", name.lower()).strip("_")
     return slug or "tenant"
+
+
+def _new_storage_path(filename: str) -> Path:
+    """Local path where an upload's bytes are kept (enables retry)."""
+    safe = _slugify(Path(filename).name)[:60] or "file"
+    directory = Path(_settings.upload_dir)
+    directory.mkdir(parents=True, exist_ok=True)
+    return directory / f"{uuid.uuid4().hex[:12]}_{safe}"
+
+
+def _delete_stored_file(doc: DocumentRecord) -> None:
+    if doc.storage_path:
+        with contextlib.suppress(OSError):
+            os.unlink(doc.storage_path)
 
 
 def collection_name(college_name: str) -> str:
@@ -74,23 +93,20 @@ async def enqueue_upload(
         size_bytes=len(contents),
         status="pending",
     )
+
+    # Persist bytes under the managed upload dir so failed ingestions can be
+    # retried without a re-upload (deleted together with the record).
+    storage_path = _new_storage_path(doc.filename)
+    storage_path.write_bytes(contents)
+    doc.storage_path = str(storage_path)
     await doc.insert()
-
-    import tempfile
-
-    with tempfile.NamedTemporaryFile(  # noqa: SIM115
-        delete=False, suffix=f"_{doc.filename}"
-    ) as tmp:
-        tmp.write(contents)
-        tmp.flush()
-        tmp_path = tmp.name
 
     # Enqueue Celery ingestion (lazy import keeps API bootable if Celery
     # broker is down — the task will simply fail and be retried).
     try:
         task = enqueue_ingestion(
             document_id=str(doc.id),
-            file_path=tmp_path,
+            file_path=doc.storage_path,
             college_name=ctx.college_name,
             department=target_dept,
             mime_type=doc.file_type,
@@ -147,6 +163,7 @@ async def remove(ctx: TenantContext, user: User, document_id: str) -> dict:
         await delete_vectors(ctx.college_name, doc.qdrant_ids)
     except Exception as exc:  # noqa: BLE001
         log.warning("qdrant_delete_failed", error=str(exc), document_id=str(doc.id))
+    _delete_stored_file(doc)
     await doc.delete()
     return {"message": "Document deleted"}
 
@@ -164,6 +181,7 @@ async def remove_document(
         await delete_vectors(college_name, doc.qdrant_ids)
     except Exception as exc:  # noqa: BLE001
         log.warning("qdrant_delete_failed", error=str(exc), document_id=str(doc.id))
+    _delete_stored_file(doc)
     await doc.delete()
     log.info(
         "admin_document_deleted", document_id=str(doc.id), by_user=user_id
@@ -172,32 +190,54 @@ async def remove_document(
 
 
 async def retry_document(doc: DocumentRecord) -> dict:
-    """Re-enqueue a failed/pending document. Caller must have already validated tenant scope."""
-    import tempfile
-    from datetime import UTC, datetime
+    """Re-enqueue ingestion from the stored upload bytes.
 
-    from app.core.config import get_settings
-    from app.workers.celery_app import enqueue_ingestion
-
-    settings = get_settings()
+    Caller must have already validated tenant scope. If the stored file is
+    gone (e.g. legacy record uploaded before storage_path existed), we reset
+    status and ask for a re-upload.
+    """
     doc.status = "pending"
     doc.error_message = None
     doc.updated_at = datetime.now(UTC)
     await doc.save()
 
-    # We do not have the original file on disk (it was deleted after ingestion),
-    # so the retry will fail unless the file is re-uploaded. In a cloud setup
-    # this would re-pull from object storage; here we just mark it pending and
-    # surface a clear message to the operator.
-    log.info(
-        "document_retry_requested",
-        document_id=str(doc.id),
-        note="file_not_in_storage; re-upload required",
-    )
+    import anyio
+
+    if not doc.storage_path or not await anyio.Path(doc.storage_path).exists():
+        log.info(
+            "document_retry_requested",
+            document_id=str(doc.id),
+            note="file_not_in_storage; re-upload required",
+        )
+        return {
+            "documentId": str(doc.id),
+            "status": doc.status,
+            "message": "Document reset to pending. Please re-upload the file.",
+        }
+
+    try:
+        enqueue_ingestion(
+            document_id=str(doc.id),
+            file_path=doc.storage_path,
+            college_name=doc.college_name,
+            department=doc.department,
+            mime_type=doc.file_type,
+            filename=doc.filename,
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.warning(
+            "ingestion_enqueue_failed", error=str(exc), document_id=str(doc.id)
+        )
+        return {
+            "documentId": str(doc.id),
+            "status": doc.status,
+            "message": "Document reset to pending. Ingestion will retry when the broker is back.",
+        }
+    log.info("document_retry_enqueued", document_id=str(doc.id))
     return {
         "documentId": str(doc.id),
         "status": doc.status,
-        "message": "Document reset to pending. Please re-upload the file.",
+        "message": "Document re-enqueued for processing",
     }
 
 

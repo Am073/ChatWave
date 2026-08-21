@@ -13,14 +13,14 @@ cp .env.example .env
 ```
 
 ## Required services
-You can run them locally via `docker compose up -d mongo qdrant redis`
-(from the repo root) or point the `.env` at managed instances.
+All infrastructure services (MongoDB, Qdrant, Redis) are managed in the cloud —
+point the `.env` URIs at your cloud instances. No local Docker required.
 
-| Service | Default URL |
-|---------|-------------|
-| MongoDB | `mongodb://localhost:27017/chatwave` |
-| Qdrant  | `http://localhost:6333` |
-| Redis   | `redis://localhost:6379/0` |
+| Service   | Cloud configuration |
+|-----------|---------------------|
+| MongoDB   | `MONGO_URI` (e.g. `mongodb+srv://...atlas...`) |
+| Qdrant    | `QDRANT_URL` + `QDRANT_API_KEY` |
+| Redis     | `REDIS_URL` |
 
 ## External APIs
 - **Gemini API key** (or any other LLM provider supported by LiteLLM)

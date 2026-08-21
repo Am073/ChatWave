@@ -6,6 +6,7 @@ with refresh_token_hash (bcrypt) rotation.
 from __future__ import annotations
 
 from fastapi import Request, Response
+from pymongo.errors import DuplicateKeyError
 from structlog import get_logger
 
 from app.api.deps import (
@@ -15,6 +16,7 @@ from app.api.deps import (
     _set_csrf_cookie,
 )
 from app.core.errors import AppError, AuthError, ConflictError
+from app.core.passwords import validate_password_strength
 from app.core.security import (
     create_access_token,
     create_refresh_token,
@@ -30,6 +32,11 @@ log = get_logger(__name__)
 
 
 async def register(payload: RegisterIn, response: Response) -> AuthResponse:
+    validate_password_strength(payload.password)
+    # Friendly pre-check; the unique index on college_id is the real
+    # source of truth for atomicity. We catch DuplicateKeyError below
+    # so a concurrent register of the same college_id returns a clean
+    # 409 instead of a 500.
     existing = await User.find_one({"college_id": payload.college_id})
     if existing is not None:
         raise ConflictError("User with this College ID already exists")
@@ -46,9 +53,14 @@ async def register(payload: RegisterIn, response: Response) -> AuthResponse:
         department=payload.department,
         is_active=True,
     )
+    try:
+        await user.insert()
+    except DuplicateKeyError as exc:
+        raise ConflictError("User with this College ID already exists") from exc
+
     access, refresh = _issue_tokens(user)
     user.refresh_token_hash = hash_password(refresh)
-    await user.insert()
+    await user.save()
 
     _set_auth_cookies(response, access, refresh)
     _set_csrf_cookie(response, generate_csrf_token())
@@ -106,6 +118,9 @@ async def refresh_access(request: Request, response: Response) -> dict:
 
 
 async def change_password(user: User, payload: ChangePasswordIn) -> dict:
+    validate_password_strength(payload.newPassword)
+    if payload.oldPassword == payload.newPassword:
+        raise AppError("New password must differ from the current password", status_code=400)
     # Re-fetch fresh document (avoids stale object bug from v1 #1).
     db_user = await User.get(user.id)
     if db_user is None:
@@ -113,9 +128,12 @@ async def change_password(user: User, payload: ChangePasswordIn) -> dict:
     if not verify_password(payload.oldPassword, db_user.password):
         raise AppError("Incorrect current password")
     db_user.password = hash_password(payload.newPassword)
+    # Invalidate all refresh tokens on password change so a stolen token
+    # can't keep minting access tokens.
+    db_user.refresh_token_hash = None
     await db_user.save()
     log.info("password_changed", user_id=str(db_user.id))
-    return {"message": "Password changed successfully"}
+    return {"message": "Password changed. Please sign in again."}
 
 
 def _issue_tokens(user: User) -> tuple[str, str]:

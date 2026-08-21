@@ -40,6 +40,16 @@ class ConflictError(AppError):
     message = "Conflict"
 
 
+class ValidationAppError(AppError):
+    status_code = 422
+    message = "Validation failed"
+
+
+class RateLimitError(AppError):
+    status_code = 429
+    message = "Too many requests"
+
+
 class TenantIsolationError(ForbiddenError):
     message = "Tenant isolation violation"
 

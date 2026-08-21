@@ -40,12 +40,15 @@ __pycache__/
 
 # Local agent/tooling state
 .agents/
+.claude/
 .codex/
+.qodo/
+opencode.json
 skills-lock.json
 
-# Personal notes / scratch docs
-CHATWAVE-INFO.md
-*-INFO.md
+# Personal notes / scratch docs (kept local, not for showcase)
+INTERVIEW_PREP.md
+PROJECT_DEEP_DIVE.md
 NOTES.md
 NOTES-*.md
 *-NOTES.md
@@ -53,6 +56,10 @@ NOTES-*.md
 PERSONAL*.md
 notes/
 scratch/
+
+# Test runner artifacts
+frontend/test-results/
+frontend/playwright-report/
 
 # Secret/key material
 *.pem

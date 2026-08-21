@@ -49,9 +49,17 @@ class Settings(BaseSettings):
     celery_result_backend: str | None = None
 
     # ---- LiteLLM / models ----
+    # LLM provider keys (at least one is required in production)
     gemini_api_key: str | None = None
+    anthropic_api_key: str | None = None
+    openai_api_key: str | None = None
+    # Default chat / embedding model (Gemini is the free-tier default)
     chat_model: str = "gemini/gemini-2.0-flash"
     embedding_model: str = "gemini/embedding-001"
+    # Allow admins to switch the default model at runtime (stored in-memory)
+    enable_runtime_model_switch: bool = True
+    # Cost guard: max tokens allowed in a single LLM completion
+    max_completion_tokens: int = 2048
 
     # ---- Langfuse (optional) ----
     langfuse_secret_key: str | None = None
@@ -77,10 +85,21 @@ class Settings(BaseSettings):
     agent_max_iterations: int = 5
     agent_max_tool_calls: int = 5
     retrieval_top_k: int = 5
-    # FIX[10]: Enable keyword pre-filter alongside vector search
     use_hybrid_filter: bool = True
 
     prompt_version: str = "v2.0"
+
+    # ---- Rate limiting (Redis-backed sliding window) ----
+    rate_limit_enabled: bool = True
+    rate_limit_default_per_minute: int = 120
+    rate_limit_auth_per_minute: int = 10
+    rate_limit_chat_per_minute: int = 30
+    rate_limit_upload_per_minute: int = 20
+
+    # ---- Google Calendar OAuth ----
+    google_oauth_client_id: str | None = None
+    google_oauth_client_secret: str | None = None
+    google_oauth_redirect_uri: str = "http://localhost:8000/api/calendar/oauth/callback"
 
     @computed_field  # type: ignore[misc]
     @property
@@ -103,6 +122,50 @@ class Settings(BaseSettings):
     @property
     def effective_result_backend(self) -> str:
         return self.celery_result_backend or self.redis_url
+
+    @computed_field  # type: ignore[misc]
+    @property
+    def available_providers(self) -> list[str]:
+        """List of LLM providers with a configured API key."""
+        providers: list[str] = []
+        if self.gemini_api_key:
+            providers.append("gemini")
+        if self.anthropic_api_key:
+            providers.append("anthropic")
+        if self.openai_api_key:
+            providers.append("openai")
+        return providers
+
+    @computed_field  # type: ignore[misc]
+    @property
+    def available_chat_models(self) -> list[str]:
+        """Curated catalog of supported chat models per available provider."""
+        catalog: list[str] = []
+        if self.gemini_api_key:
+            catalog.extend(
+                [
+                    "gemini/gemini-2.0-flash",
+                    "gemini/gemini-2.5-pro",
+                    "gemini/gemini-1.5-flash",
+                ]
+            )
+        if self.anthropic_api_key:
+            catalog.extend(
+                [
+                    "anthropic/claude-3-5-sonnet-latest",
+                    "anthropic/claude-3-5-haiku-latest",
+                    "anthropic/claude-3-opus-20240229",
+                ]
+            )
+        if self.openai_api_key:
+            catalog.extend(
+                [
+                    "openai/gpt-4o",
+                    "openai/gpt-4o-mini",
+                    "openai/gpt-4-turbo",
+                ]
+            )
+        return catalog
 
 
 # Test fallback default overrides allow config to load in unit tests.

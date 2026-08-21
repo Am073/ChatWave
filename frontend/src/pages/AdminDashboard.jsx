@@ -10,6 +10,7 @@ import DocumentUpload from "../components/Upload/DocumentUpload";
 import UploadedDocumentsList from "../components/Upload/UploadedDocumentsList";
 import AllAnnouncementsList from "../components/Admin/AllAnnouncementsList";
 import SettingsModal from "../components/Settings/SettingsModal";
+import ModelSwitcher from "../components/Admin/ModelSwitcher";
 import { useAdminStats } from "../hooks/useAdminStats";
 import { useCalendarConnectionToast } from "../hooks/useCalendarIntegration";
 import { getActivity, getHealth } from "../services/adminService";
@@ -117,6 +118,9 @@ export default function AdminDashboard() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <ActivityFeed activities={activities} loading={loadingExtras} />
               <SystemHealth  health={health}         loading={loadingExtras} />
+            </div>
+            <div className="max-w-3xl">
+              <ModelSwitcher />
             </div>
           </div>
         )}

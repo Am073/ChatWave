@@ -2,12 +2,16 @@
 
 Admin role: sees all announcements (skips $or filter — fixes v1 Bug #6).
 Faculty/Admin: can create. Visibility is role+department scoped for reads.
+A SSE endpoint allows live push of newly-created announcements to subscribed
+clients in the same tenant.
 """
 from __future__ import annotations
 
+import asyncio
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
+from sse_starlette.sse import EventSourceResponse
 
 from app.api.deps import (
     CSRFDep,
@@ -16,12 +20,14 @@ from app.api.deps import (
     require_faculty_or_admin,
 )
 from app.core.errors import NotFoundError
+from app.events.announcement_bus import bus, serialize
 from app.models.announcement import (
     Announcement,
     announcement_out,
 )
 from app.models.user import User
 from app.schemas.announcement import AnnouncementCreateIn
+from app.services.announcement_service import list_visible_announcements
 
 router = APIRouter()
 
@@ -36,36 +42,7 @@ async def list_announcements(
     department: str | None = Query(None),
     limit: int = Query(50, le=200),
 ) -> list[dict]:
-    # Build tenant-scoped query (spec: every query filters by college_name).
-    query: dict = {"college_name": ctx.college_name}
-    if ctx.role == "admin":
-        # Admin sees all announcements within tenant (Bug #6 fix ported).
-        pass
-    else:
-        # Non-admin: college_wide (department null) OR own department.
-        own = department or ctx.department
-        if own:
-            docs = await Announcement.find(
-                {
-                    "$and": [
-                        query,
-                        {
-                            "$or": [
-                                {"department": None},
-                                {"department": own},
-                            ]
-                        },
-                    ]
-                }
-            ).to_list(limit)
-        else:
-            query["department"] = None  # type: ignore[assignment]
-            docs = await Announcement.find(query).to_list(limit)
-        if category:
-            docs = [d for d in docs if d.category == category]
-        return [announcement_out(d).model_dump(by_alias=True) for d in docs]
-
-    docs = await Announcement.find(query).to_list(limit)
+    docs = await list_visible_announcements(ctx, department=department, limit=limit)
     if category:
         docs = [d for d in docs if d.category == category]
     return [announcement_out(d).model_dump(by_alias=True) for d in docs]
@@ -83,6 +60,12 @@ async def create_announcement(
         target_dept = None
     elif not target_dept:
         target_dept = ctx.department
+    else:
+        # Faculty may only post to their own department; admins may post anywhere.
+        from app.core.errors import ForbiddenError
+
+        if user.role != "admin" and target_dept != ctx.department:
+            raise ForbiddenError("Faculty can only post in their own department")
     announcement = Announcement(
         author=str(user.id),
         author_name=user.name,
@@ -95,19 +78,55 @@ async def create_announcement(
         is_private=payload.is_private,
     )
     await announcement.insert()
-    return announcement_out(announcement).model_dump(by_alias=True)
+    out = announcement_out(announcement).model_dump(by_alias=True)
+    # Publish to SSE subscribers in this tenant (best-effort).
+    await bus.publish(
+        ctx.college_name,
+        {"type": "announcement.created", "announcement": out},
+    )
+    return out
+
+
+@router.get("/stream")
+async def stream_announcements(
+    user: CurrentUser, ctx: TenantContextDep
+):
+    """Server-Sent Events stream of new announcements in the user's tenant.
+
+    Heartbeat every 25 seconds to keep idle connections open across proxies.
+    """
+
+    async def event_gen():
+        q = await bus.subscribe(ctx.college_name)
+        try:
+            yield {"event": "ready", "data": serialize({"tenant": ctx.college_name})}
+            while True:
+                try:
+                    payload = await asyncio.wait_for(q.get(), timeout=25.0)
+                    yield {
+                        "event": "announcement",
+                        "data": serialize(payload),
+                    }
+                except TimeoutError:
+                    # Heartbeat keep-alive.
+                    yield {"event": "ping", "data": "{}"}
+        finally:
+            await bus.unsubscribe(ctx.college_name, q)
+
+    return EventSourceResponse(event_gen())
 
 
 @router.put("/{announcement_id}/read")
 async def mark_read(
     user: CurrentUser, _: CSRFDep, ctx: TenantContextDep, announcement_id: str
 ) -> dict:
+    """Idempotent mark-as-read: $addToSet makes the operation race-free
+    and avoids the read-modify-write pattern that would otherwise let two
+    concurrent clicks append the same user_id twice."""
     announcement = await Announcement.get(announcement_id)
     if announcement is None or announcement.college_name != ctx.college_name:
         raise NotFoundError("Announcement not found")
-    if str(user.id) not in announcement.read_by:
-        announcement.read_by.append(str(user.id))
-        await announcement.save()
+    await announcement.update({"$addToSet": {"read_by": str(user.id)}})
     return {"message": "Marked as read"}
 
 

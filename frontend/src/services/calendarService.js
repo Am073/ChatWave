@@ -1,21 +1,16 @@
 import api from './api';
 
 export const getCalendarStatus = () => api.get('/calendar/status');
-
 export const getAuthUrl = () => api.get('/calendar/auth');
-
-// FIX[5]: POST /calendar/sync does not exist in backend
-export const syncCalendarEvent = (eventId) => {
-  console.warn(`[FIX5] POST /api/calendar/sync is not implemented.`);
-  alert('This feature is not yet available.');
-  return Promise.resolve();
-};
-
+export const listEvents = (params = {}) => api.get('/calendar/events', { params });
 export const addEvent = (data) => api.post('/calendar/events', data);
+export const deleteEvent = (eventId) => api.delete(`/calendar/events/${eventId}`);
+export const syncCalendar = () => api.post('/calendar/sync');
+export const disconnectCalendar = () => api.delete('/calendar/disconnect');
 
-// FIX[5]: DELETE /calendar/disconnect does not exist in backend
-export const disconnectCalendar = () => {
-  console.warn('[FIX5] DELETE /api/calendar/disconnect is not implemented.');
-  alert('This feature is not yet available.');
-  return Promise.resolve();
-};
+// Smart date detection: scan a chat answer + cited snippets for
+// calendar-worthy dates.
+export const extractDates = (payload) => api.post('/calendar/extract-dates', payload);
+
+// Bulk-create multiple Google Calendar events in a single call.
+export const bulkAddEvents = (events) => api.post('/calendar/events/bulk', { events });

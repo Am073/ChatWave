@@ -9,11 +9,11 @@ from app.models.user import UserOut
 
 
 class RegisterIn(BaseModel):
-    name: str
-    college_id: str
-    password: str = Field(min_length=6)
-    college_name: str
-    department: str | None = None
+    name: str = Field(min_length=1, max_length=120)
+    college_id: str = Field(min_length=2, max_length=64)
+    password: str = Field(min_length=8, max_length=128)
+    college_name: str = Field(min_length=1, max_length=200)
+    department: str | None = Field(default=None, max_length=120)
     role: Literal["student", "faculty", "admin"] = "student"
 
 
@@ -26,7 +26,7 @@ class LoginIn(BaseModel):
 
 class ChangePasswordIn(BaseModel):
     oldPassword: str
-    newPassword: str = Field(min_length=8)
+    newPassword: str = Field(min_length=8, max_length=128)
 
 
 class AuthResponse(BaseModel):

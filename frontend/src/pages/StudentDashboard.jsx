@@ -150,7 +150,7 @@ export default function StudentDashboard() {
           )}
         >
           <ChatWindow
-            userId={user?.id}
+            userId={user?.id || user?._id}
             collegeName={user?.college_name}
           />
         </div>

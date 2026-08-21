@@ -1,4 +1,4 @@
-"""Upload routes - full implementation in Phase 3."""
+"""Upload routes."""
 from __future__ import annotations
 
 from typing import Annotated
@@ -11,6 +11,8 @@ from app.api.deps import (
     TenantContextDep,
     require_faculty_or_admin,
 )
+from app.core.errors import NotFoundError
+from app.models.document import DocumentRecord
 from app.models.user import User
 
 router = APIRouter()
@@ -55,3 +57,25 @@ async def delete_document(
     from app.services.upload_service import remove
 
     return await remove(ctx, user, document_id)
+
+
+@router.post("/{document_id}/retry")
+async def retry_document(
+    user: CurrentUser, _: CSRFDep, ctx: TenantContextDep, document_id: str
+):
+    """Re-enqueue a failed or pending document for ingestion.
+
+    The uploader or an admin can trigger the retry. Since the original file
+    is no longer on disk (temp files are deleted after ingestion), this
+    resets the document to 'pending' and asks the caller to re-upload.
+    """
+    doc = await DocumentRecord.get(document_id)
+    if doc is None or doc.college_name != ctx.college_name:
+        raise NotFoundError("Document not found")
+    if doc.uploader != ctx.user_id and user.role != "admin":
+        from app.core.errors import ForbiddenError
+
+        raise ForbiddenError("Only the uploader or admin may retry this document")
+    from app.services.upload_service import retry_document
+
+    return await retry_document(doc)

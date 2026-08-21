@@ -1,4 +1,4 @@
-"""Ingestion lifecycle tests (Phase 3 + Phase 4).
+"""Ingestion lifecycle tests.
 
 Verifies the parser/chunker fallback path works without external services,
 and that an ingestion task can be enqueued.

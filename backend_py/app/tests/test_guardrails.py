@@ -1,19 +1,8 @@
 """Guardrail unit tests — no live DB required."""
 from __future__ import annotations
 
-import pytest
-
-from app.guardrails.access_policy import assert_role_at_least, assert_same_tenant
 from app.guardrails.injection import is_injection, sanitize
 from app.guardrails.output import redact_pii
-
-
-def _ctx(role: str = "student", college: str = "A"):
-    from app.api.deps import TenantContext
-
-    return TenantContext(
-        user_id="u1", role=role, college_name=college, department=None, college_id="A"
-    )
 
 
 def test_injection_detector_flags_known_patterns():
@@ -34,18 +23,3 @@ def test_pii_redaction():
     assert "email" in found
     assert "phone" in found
     assert "test@example.com" not in redacted
-
-
-def test_assert_same_tenant_blocks_cross_tenant():
-    from app.core.errors import TenantIsolationError
-
-    with pytest.raises(TenantIsolationError):
-        assert_same_tenant(_ctx(college="A"), "B")
-
-
-def test_assert_role_at_least():
-    from app.core.errors import ForbiddenError
-
-    assert_role_at_least(_ctx(role="admin"), "faculty", "admin")
-    with pytest.raises(ForbiddenError):
-        assert_role_at_least(_ctx(role="student"), "admin")

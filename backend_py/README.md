@@ -1,7 +1,7 @@
 # ChatWave v2 — FastAPI Backend
 
 Multi-tenant agentic AI platform for educational institutions.
-Built on FastAPI + Beanie + LangGraph + LlamaIndex + Qdrant + LiteLLM + Celery + Langfuse.
+Built on FastAPI + Beanie + LangGraph + Qdrant + LiteLLM + Celery + Langfuse.
 
 See `/specs` for the source-of-truth specification and migration plan.
 
@@ -15,17 +15,15 @@ uv sync --all-extras
 # 3. Configure env
 cp .env.example .env
 # Edit .env: set JWT_SECRET, MONGO_URI, QDRANT_URL, REDIS_URL, GEMINI_API_KEY, etc.
+# (URIs should point at your cloud instances — MongoDB Atlas, Qdrant Cloud, Redis Cloud)
 
-# 4. Start supporting services
-docker compose up -d mongo qdrant redis   # or use your own
-
-# 5. Run API
+# 4. Run API
 uv run uvicorn app.main:app --reload
 
-# 6. Run Celery worker
+# 5. Run Celery worker
 uv run celery -A app.workers.celery_app.celery_app worker -l info
 
-# 7. (Optional) Run Flower
+# 6. (Optional) Run Flower
 uv run celery -A app.workers.celery_app.celery_app flower
 ```
 
@@ -61,7 +59,6 @@ uv run celery -A app.workers.celery_app.celery_app flower
 backend_py/
 ├── pyproject.toml
 ├── .env.example
-├── Dockerfile
 ├── README.md
 └── app/
     ├── main.py                   FastAPI factory + lifespan

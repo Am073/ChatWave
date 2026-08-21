@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useChatStream } from "../../hooks/useChatStream";
-import { addEvent } from "../../services/calendarService";
 import api from "../../services/api";
 import ChatMessage from "./ChatMessage";
 import ChatInput from "./ChatInput";
@@ -33,7 +32,7 @@ function saveLocalMessages(msgs) {
 export default function ChatWindow({ userId, collegeName }) {
   const {
     messages, setMessages, isTyping, connected,
-    sendMessage: wsSendMessage, clearMessages
+    reconnectFailed, sendMessage: wsSendMessage, clearMessages, retryConnect,
   } = useChatStream(userId, collegeName);
 
   const scrollRef = useRef(null);
@@ -176,14 +175,12 @@ export default function ChatWindow({ userId, collegeName }) {
     wsSendMessage(question, mode);
   };
 
-  const handleAddCalendar = async (date, title, description) => {
-    await addEvent({
-      summary: title || "College Update",
-      location: collegeName,
-      description,
-      start_time: `${date}T09:00:00`,
-      end_time: `${date}T10:00:00`,
-    });
+  // Calendar integration is now driven by BulkDatePicker; the chat
+  // component no longer needs to issue the API call directly. We keep
+  // the prop so ChatMessage can call us back when the modal closes
+  // (e.g. to refresh a list or show a toast).
+  const handleAddCalendar = async () => {
+    // No-op: BulkDatePicker handles the API call + result UI.
   };
 
   // Clear messages from DB, React state, AND localStorage
@@ -323,7 +320,17 @@ export default function ChatWindow({ userId, collegeName }) {
 
       {/* Input area */}
       <div className="px-4 py-3 border-t border-white/[0.07] shrink-0">
-        <ChatInput onSend={sendMessage} disabled={!connected || isTyping} />
+        {reconnectFailed ? (
+          <div className="flex items-center justify-between gap-2 text-[12px] font-dm">
+            <span className="text-red-400">Connection lost. Please refresh or try reconnecting.</span>
+            <button
+              onClick={retryConnect}
+              className="px-3 py-1 rounded-md bg-cw-teal/20 text-cw-teal hover:bg-cw-teal/30 transition-colors text-[11px] font-medium cursor-pointer"
+            >Reconnect</button>
+          </div>
+        ) : (
+          <ChatInput onSend={sendMessage} disabled={!connected || isTyping} />
+        )}
       </div>
     </div>
   );

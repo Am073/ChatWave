@@ -1,8 +1,8 @@
 """Observability: Langfuse tracing + structured logging bridge.
 
-Phase 8 acceptance: every AI request has a trace id; Langfuse captures model
-calls, embeddings, retrieval, reranking, tool calls, prompt version, latency,
-token usage, and final answer.
+Every AI request gets a trace id; Langfuse captures model calls, embeddings,
+retrieval, reranking, tool calls, prompt version, latency, token usage,
+and final answer.
 
 Design:
 - `get_tracer()` returns a no-op or Langfuse tracer depending on configuration.
@@ -20,6 +20,9 @@ from typing import Any
 
 class _NoOpTracer:
     """Default no-op tracer used when Langfuse isn't configured."""
+
+    def flush(self) -> None:
+        return None
 
     def log_event(
         self,
@@ -70,20 +73,30 @@ class _LangfuseTracer:
             host=str(s.langfuse_host) if s.langfuse_host else "https://cloud.langfuse.com",
         )
 
+    def flush(self) -> None:
+        """Flush buffered events to Langfuse. Call on shutdown."""
+        try:
+            self._client.flush()
+        except Exception:  # noqa: BLE001
+            pass
+
     def log_event(
         self, name: str, metadata: dict[str, Any] | None = None, level: str = "INFO"
     ) -> None:
-        import contextlib
-
-        with contextlib.suppress(Exception):
-            self._client.event(name=name, metadata=metadata or {})
+        try:
+            self._client.create_event(name=name, metadata=metadata or {})
+        except Exception:  # noqa: BLE001
+            log.warning("langfuse_event_failed", event=name)
 
     @contextmanager
     def span(self, name: str, **kwargs: Any) -> Iterator[Any]:
         try:
-            with self._client.start_as_current_span(name=name, **kwargs) as span:
+            with self._client.start_as_current_observation(
+                name=name, as_type="span", **kwargs
+            ) as span:
                 yield span
-        except Exception:
+        except Exception:  # noqa: BLE001
+            log.warning("langfuse_span_failed", span=name)
             yield _NoOpSpan()
 
     def generation(
@@ -92,16 +105,24 @@ class _LangfuseTracer:
         model: str,
         input_data: Any = None,
         metadata: dict[str, Any] | None = None,
-    ) -> _NoOpSpan:
-        # Langfuse's generation object is a context manager; we return a
-        # wrapper that the call site can use to record output + latency.
-        return _NoOpSpan()
+    ) -> Any:
+        try:
+            return self._client.start_as_current_observation(
+                name=name,
+                as_type="generation",
+                model=model,
+                input=input_data,
+                metadata=metadata,
+            )
+        except Exception:  # noqa: BLE001
+            log.warning("langfuse_generation_failed", generation=name)
+            return _NoOpSpan()
 
     def score(self, name: str, value: float, comment: str | None = None) -> None:
-        import contextlib
-
-        with contextlib.suppress(Exception):
-            self._client.score(name=name, value=value, comment=comment or "")
+        try:
+            self._client.create_score(name=name, value=value, comment=comment or "")
+        except Exception:  # noqa: BLE001
+            log.warning("langfuse_score_failed", score=name)
 
 
 _cached_tracer: _NoOpTracer | _LangfuseTracer | None = None

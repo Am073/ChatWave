@@ -5,6 +5,9 @@ from typing import Any
 
 from beanie import Document, init_beanie
 from motor.motor_asyncio import AsyncIOMotorClient
+# Patch Beanie compatibility with newer Motor versions
+AsyncIOMotorClient.append_metadata = lambda *args, **kwargs: None
+
 from qdrant_client import AsyncQdrantClient
 from redis.asyncio import Redis
 
@@ -32,7 +35,7 @@ async def connect_mongodb(document_models: list[type[Document]]) -> None:
     global _motor_client
     log.info("connecting_mongodb")
     _motor_client = AsyncIOMotorClient(
-        _settings.mongo_uri, serverSelectionTimeoutMS=2000, connectTimeoutMS=2000
+        _settings.mongo_uri, serverSelectionTimeoutMS=10000, connectTimeoutMS=10000
     )
     try:
         await _motor_client.admin.command("ping")
@@ -40,6 +43,8 @@ async def connect_mongodb(document_models: list[type[Document]]) -> None:
         log.warning("mongodb_unreachable_at_startup", error=str(exc))
         return
     db = _motor_client.get_default_database()
+    if _settings.app_env == "test" and not db.name.endswith("_test"):
+        db = _motor_client[db.name + "_test"]
     await init_beanie(database=db, document_models=document_models)
     log.info("mongodb_connected", db=db.name)
 
@@ -71,21 +76,34 @@ def get_qdrant_client() -> AsyncQdrantClient:
 async def close_qdrant() -> None:
     global _qdrant_client
     if _qdrant_client is not None:
-        await _qdrant_client.close()
+        try:
+            await _qdrant_client.close()
+        except Exception:
+            pass
         _qdrant_client = None
 
 
 def get_redis() -> Redis:
     global _redis
     if _redis is None:
-        _redis = Redis.from_url(_settings.redis_url, decode_responses=True)
+        _redis = Redis.from_url(
+            _settings.redis_url,
+            decode_responses=True,
+            socket_connect_timeout=2.0,
+            socket_timeout=5.0,
+            max_connections=50,
+        )
     return _redis
 
 
 async def close_redis() -> None:
     global _redis
     if _redis is not None:
-        await _redis.aclose()
+        log.info("closing_redis")
+        try:
+            await _redis.aclose()
+        except Exception:
+            pass
         _redis = None
 
 

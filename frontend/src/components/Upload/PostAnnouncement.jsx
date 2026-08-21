@@ -34,7 +34,7 @@ export default function PostAnnouncement({ showOnlyMine = true, onPostSuccess })
       const res = await getAnnouncements();
       const posts = Array.isArray(res.data) ? res.data : (res.data?.announcements || []);
       const filtered = showOnlyMine
-        ? posts.filter(p => (p.author?._id || p.author?.id || p.author) === user?.id)
+        ? posts.filter(p => (p.author?._id || p.author?.id || p.author) === (user?.id || user?._id))
         : posts;
       const postMap = new Map();
       filtered.forEach(p => { if (!postMap.has(p.id || p._id)) postMap.set(p.id || p._id, { ...p, id: p.id || p._id }); });
@@ -50,7 +50,7 @@ export default function PostAnnouncement({ showOnlyMine = true, onPostSuccess })
     } catch { alert('Could not delete announcement'); }
   };
 
-  useEffect(() => { fetchRecent(); }, [showOnlyMine, user?.id]);
+  useEffect(() => { fetchRecent(); }, [showOnlyMine, user?.id, user?._id]);
 
   const handlePost = async () => {
     // FIX[6]: Validate title is non-empty

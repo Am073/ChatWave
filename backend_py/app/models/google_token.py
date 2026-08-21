@@ -4,7 +4,6 @@ from __future__ import annotations
 from datetime import datetime
 
 from beanie import Document, Indexed
-from pydantic import BaseModel, Field
 
 
 class UserGoogleToken(Document):
@@ -15,11 +14,3 @@ class UserGoogleToken(Document):
 
     class Settings:
         name = "usergoogletokens"
-
-
-class UserGoogleTokenOut(BaseModel):
-    id: str = Field(alias="_id")
-    user: str
-    expires_at: datetime | None = None
-
-    model_config = {"populate_by_name": True}

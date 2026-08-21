@@ -1,7 +1,7 @@
 """CalendarEvent model."""
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 
 from beanie import Document, Indexed
 from pydantic import BaseModel, Field
@@ -13,9 +13,7 @@ class CalendarEvent(Document):
     title: str
     start_time: datetime
     end_time: datetime
-    event_date: date | None = None
     event_description: str | None = None
-    source_chat_log: str | None = None  # ChatLog id
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     class Settings:
@@ -31,6 +29,5 @@ class CalendarEventOut(BaseModel):
     end_time: datetime
     google_event_id: str | None = None
     event_description: str | None = None
-    source_chat_log: str | None = None
 
     model_config = {"populate_by_name": True}

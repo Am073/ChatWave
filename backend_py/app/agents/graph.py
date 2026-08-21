@@ -42,9 +42,10 @@ _settings = get_settings()
 async def intent_classifier(state: AgentState) -> AgentState:
     state.iteration += 1
     tracer = get_tracer()
+    model = state.model_override or _settings.chat_model
     try:
         resp = await litellm.acompletion(
-            model=_settings.chat_model,
+            model=model,
             messages=[
                 {"role": "system", "content": "You classify intents."},
                 {
@@ -75,6 +76,13 @@ async def intent_classifier(state: AgentState) -> AgentState:
 
 
 async def context_retriever(state: AgentState) -> AgentState:
+    if state.mode == "general":
+        state.sources = []
+        state.agent_steps.append(
+            {"node": "context_retriever", "sources": 0, "skipped": True}
+        )
+        return state
+
     from app.api.deps import TenantContext
 
     ctx = TenantContext(
@@ -103,6 +111,8 @@ async def context_retriever(state: AgentState) -> AgentState:
 
 
 def _sufficiency_router(state: AgentState) -> str:
+    if state.mode == "general":
+        return "continue"
     if state.iteration >= _settings.agent_max_iterations:
         return "refuse"
     if state.intent == "refuse":
@@ -124,6 +134,7 @@ async def sufficiency_check(state: AgentState) -> AgentState:
 
 async def answer_generator(state: AgentState) -> AgentState:
     tracer = get_tracer()
+    model = state.model_override or _settings.chat_model
     ctx_text = "\n\n".join(
         f"[{i+1}] {s.get('text','')}"
         for i, s in enumerate(state.sources[:_settings.retrieval_top_k])
@@ -134,11 +145,12 @@ async def answer_generator(state: AgentState) -> AgentState:
     user = build_answer_prompt(question=state.question, context=ctx_text or "(no context)")
     try:
         resp = await litellm.acompletion(
-            model=_settings.chat_model,
+            model=model,
             messages=[
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ],
+            max_tokens=_settings.max_completion_tokens,
         )
         state.answer = resp["choices"][0]["message"]["content"] or ""
     except Exception as exc:  # noqa: BLE001
@@ -210,5 +222,11 @@ def build_agent_graph() -> Any:
 _agent = build_agent_graph()
 
 
-async def run_agent(state: AgentState) -> AgentState:
-    return await _agent.ainvoke(state)
+async def run_agent(state: AgentState, model_override: str | None = None) -> AgentState:
+    """Invoke the agent graph. Optionally override the chat model for this run."""
+    if model_override:
+        state.model_override = model_override
+    res = await _agent.ainvoke(state)
+    if isinstance(res, dict):
+        return AgentState(**res)
+    return res

@@ -17,8 +17,7 @@ ChatWave is a production-grade, multi-tenant agentic AI platform for educational
 # 1. Backend (FastAPI)
 cd backend_py
 uv sync --all-extras
-cp .env.example .env       # edit secrets
-docker compose up -d mongo qdrant redis   # from repo root
+cp .env.example .env       # edit secrets (cloud URIs for Mongo/Qdrant/Redis)
 uv run uvicorn app.main:app --reload --port 8000
 uv run celery -A app.workers.celery_app.celery_app worker -l info
 
@@ -39,24 +38,27 @@ chatwave/
 ├── frontend/              React 19 + Vite (proxies /api to FastAPI :8000)
 ├── specs/                 Source-of-truth spec for v2
 ├── CHATWAVE-INFO.md       v1 reference + transition plan (historical)
-├── .github/workflows/     CI for backend_py (ruff + pytest)
-└── docker-compose.yml     Local Mongo + Qdrant + Redis
+└── .github/workflows/     CI for backend_py (ruff + pytest)
 ```
 
 ## Stack highlights
 
-- **API**: FastAPI on Python 3.12+
+- **API**: FastAPI on Python 3.12+ (WebSocket chat, SSE announcements, HTTP REST)
 - **Data models**: Pydantic v2 + Beanie ODM
 - **Primary DB**: MongoDB
 - **Vector DB**: Qdrant (per-tenant collections)
-- **RAG framework**: LlamaIndex
-- **Agent orchestration**: LangGraph
-- **Model gateway**: LiteLLM
+- **RAG framework**: LlamaIndex + LangGraph
+- **Agent orchestration**: LangGraph (5-node state machine) with tenant-scoped RAG tools (search_documents, get_announcements)
+- **Model gateway**: LiteLLM (Gemini, Claude, GPT-4o) with runtime model switcher
 - **Background jobs**: Celery + Redis
 - **Parsing**: Docling primary, fallback loaders as needed
-- **Observability**: Langfuse
+- **Observability**: Langfuse + Prometheus metrics + structured request logging
 - **Evals**: Ragas + DeepEval
-- **Frontend**: React 19 + Vite
+- **Auth**: JWT + CSRF double-submit cookies; OAuth for Google Calendar
+- **Security**: Redis-backed rate limiter, env validation, security headers, HSTS
+- **Frontend**: React 19 + Vite + WebSocket chat + Vitest tests
+- **Frontend tests**: Vitest + React Testing Library (component + hook coverage)
+- **Deployment**: Native Python (uvicorn) + Node (Vite) — infrastructure is fully cloud-managed (MongoDB Atlas, Qdrant Cloud, Redis Cloud)
 
 ## More
 
@@ -64,3 +66,16 @@ chatwave/
 - `CHATWAVE-INFO.md` — v1 reference + transition plan
 - `SETUP.md` — environment setup
 - `backend_py/RETIRE_EXPRESS.md` — v1 retirement checklist (complete)
+
+## Key v3 features
+
+- **WebSocket chat** at `ws://host/api/chat/ws` (auto-reconnect, cancel support)
+- **SSE announcement push** at `GET /api/announcements/stream`
+- **Google Calendar** OAuth flow + event CRUD + sync
+- **Multi-LLM** with runtime model switching (admin endpoint)
+- **Prometheus metrics** at `/api/metrics`
+- **Redis rate limiter** (sliding window per IP+route)
+- **Strong password policy** + startup env validation + HTTPS redirect
+- **Audit log** persisted to MongoDB (AuditEvent collection)
+- **Frontend tests** with Vitest + React Testing Library
+- **Cloud infrastructure**: MongoDB Atlas + Qdrant Cloud + Redis Cloud (no local Docker required)

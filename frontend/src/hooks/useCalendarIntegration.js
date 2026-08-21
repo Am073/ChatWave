@@ -1,5 +1,5 @@
-import { useQuery, useMutation } from '@tanstack/react-query';
-import { getCalendarStatus, getAuthUrl, syncCalendarEvent } from '../services/calendarService';
+import { useQuery } from '@tanstack/react-query';
+import { getCalendarStatus, getAuthUrl } from '../services/calendarService';
 import { useEffect } from 'react';
 
 export function useCalendarConnectionToast() {
@@ -38,20 +38,10 @@ export function useCalendarIntegration() {
     }
   };
 
-  // useMutation for sync
-  const syncMutation = useMutation({
-    mutationFn: async (eventId) => {
-      const res = await syncCalendarEvent(eventId);
-      return res.data;
-    }
-  });
-
   return {
     calendarConnected,
     calendarLoading,
     checkStatus,
     handleConnect,
-    syncMutation,
-    syncEvent: syncMutation.mutateAsync,
   };
 }

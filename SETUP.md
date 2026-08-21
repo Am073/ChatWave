@@ -9,11 +9,12 @@ This guide walks you through setting up ChatWave v2 (FastAPI backend + React fro
 1. **Python 3.12+** (3.13 supported)
 2. **Node.js 20+** (for the React frontend only)
 3. **uv** (https://docs.astral.sh/uv/) — Python package manager
-4. **MongoDB 7+** (local Docker or Atlas)
-5. **Qdrant** (local Docker or Qdrant Cloud)
-6. **Redis 6+** (local Docker or managed)
-7. **Google Gemini API key** (or any LiteLLM-supported LLM key)
-8. *(Optional)* **Langfuse** credentials for tracing
+4. **Cloud-managed services** (no local Docker required):
+   - **MongoDB Atlas** — connection URI in `MONGO_URI`
+   - **Qdrant Cloud** — connection URL + API key in `QDRANT_URL` / `QDRANT_API_KEY`
+   - **Redis Cloud** — connection URI in `REDIS_URL`
+5. **Google Gemini API key** (or any LiteLLM-supported LLM key)
+6. *(Optional)* **Langfuse** credentials for tracing
 
 ---
 
@@ -51,13 +52,17 @@ npm run dev
 
 The Vite dev server runs on `http://localhost:5173` and proxies `/api/*` to the FastAPI backend on `:8000`.
 
-## 3. Required services (local Docker)
+## 3. Required services (cloud)
 
-From the repo root, the `docker-compose.yml` brings up MongoDB, Qdrant, and Redis:
+All infrastructure services (MongoDB, Qdrant, Redis) are configured to point at
+cloud providers via `backend_py/.env`:
 
-```bash
-docker compose up -d mongo qdrant redis
-```
+- **MongoDB Atlas** — `MONGO_URI`
+- **Qdrant Cloud** — `QDRANT_URL` + `QDRANT_API_KEY`
+- **Redis Cloud** — `REDIS_URL`
+
+No local Docker is required — just ensure the URIs in `.env` are reachable
+from your machine.
 
 ## 4. Seeded test users
 

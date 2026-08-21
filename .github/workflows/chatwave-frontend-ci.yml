@@ -1,0 +1,44 @@
+name: chatwave-frontend-ci
+
+on:
+  push:
+    branches: [main, master, develop]
+    paths: ["frontend/**", ".github/workflows/chatwave-frontend-ci.yml"]
+  pull_request:
+    branches: [main, master, develop]
+    paths: ["frontend/**", ".github/workflows/chatwave-frontend-ci.yml"]
+
+defaults:
+  run:
+    working-directory: frontend
+
+jobs:
+  lint-build-test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: ["20", "22"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm run test:run
+
+      - name: Build
+        run: npm run build
+        env:
+          VITE_API_BASE_URL: "http://localhost:8000"

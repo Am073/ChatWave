@@ -34,6 +34,9 @@ class AgentState(BaseModel):
     confidence: str = "low"
     answer: str = ""
     tool_calls: list[dict[str, Any]] = Field(default_factory=list)
+    mode: str = "college"  # "college" = RAG retrieval, "general" = direct LLM
     refused: bool = False
     clarification: bool = False
     finished: bool = False
+    # Optional per-run model override (e.g. admin wants to test Claude vs Gemini).
+    model_override: str | None = None

@@ -3,9 +3,7 @@
 Decisions:
 - Docling is the primary parser (Decision #10). Fallback parsers for
   PDF/DOCX/XLSX/image when Docling isn't available or extraction is empty.
-- LlamaIndex is the chunker (Decision #6) but we keep a simple wrapper so
-  the ingestion logic doesn't depend on the full LlamaIndex toolchain when
-  the operator wants to swap it later.
+- Chunking is a stdlib-only split on whitespace/_fallback_chunk_text (Decision #6).
 - Embeddings go through LiteLLM (Decision #8) for provider portability.
 - Vectors land in a per-tenant Qdrant collection (Decision #5).
 """
@@ -134,8 +132,6 @@ async def embed_texts(texts: list[str]) -> list[list[float]]:
         return []
     import litellm
 
-    # FIX[2]: Let embedding failures propagate so the Celery task marks the
-    # document as 'failed' instead of silently indexing zero vectors.
     resp = await litellm.aembedding(
         model=_settings.embedding_model,
         input=texts,

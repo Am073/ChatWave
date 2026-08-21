@@ -18,6 +18,20 @@ from passlib.context import CryptContext
 
 from app.core.config import get_settings
 
+# Patch passlib compatibility with newer bcrypt versions
+import bcrypt
+if not hasattr(bcrypt, "__about__"):
+    setattr(bcrypt, "__about__", type("About", (), {"__version__": bcrypt.__version__})())
+
+_orig_hashpw = bcrypt.hashpw
+def _patched_hashpw(password, salt):
+    if isinstance(password, str):
+        password = password.encode("utf-8")
+    if len(password) > 72:
+        password = password[:72]
+    return _orig_hashpw(password, salt)
+bcrypt.hashpw = _patched_hashpw
+
 _settings = get_settings()
 _pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto", bcrypt__rounds=12)
 

@@ -1,8 +1,8 @@
 """Upload service: validate, persist, enqueue ingestion, list/status/delete.
 
-Phase 3/4 boundary: this module owns the document lifecycle on the API side
-(persistence, validation, tenant scoping). The heavy lifting (parsing,
-chunking, embedding, indexing) lives in app.services.ingestion_service and
+This module owns the document lifecycle on the API side (persistence,
+validation, tenant scoping). The heavy lifting (parsing, chunking, embedding,
+indexing) lives in app.services.ingestion_service and
 app.workers.ingestion_tasks.
 """
 from __future__ import annotations
@@ -76,8 +76,6 @@ async def enqueue_upload(
     )
     await doc.insert()
 
-    # FIX[3]: Write bytes to a temp file so Celery (JSON serializer) receives
-    # a file path string instead of raw bytes which cannot be serialized.
     import tempfile
 
     with tempfile.NamedTemporaryFile(  # noqa: SIM115
@@ -151,6 +149,56 @@ async def remove(ctx: TenantContext, user: User, document_id: str) -> dict:
         log.warning("qdrant_delete_failed", error=str(exc), document_id=str(doc.id))
     await doc.delete()
     return {"message": "Document deleted"}
+
+
+async def remove_document(
+    *, college_name: str, document_id: str, user_id: str
+) -> dict:
+    """Admin-scoped delete: tenant-scoped, no ownership check."""
+    doc = await DocumentRecord.get(document_id)
+    if doc is None or doc.college_name != college_name:
+        raise NotFoundError("Document not found")
+    try:
+        from app.services.ingestion_service import delete_vectors
+
+        await delete_vectors(college_name, doc.qdrant_ids)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("qdrant_delete_failed", error=str(exc), document_id=str(doc.id))
+    await doc.delete()
+    log.info(
+        "admin_document_deleted", document_id=str(doc.id), by_user=user_id
+    )
+    return {"message": "Document deleted"}
+
+
+async def retry_document(doc: DocumentRecord) -> dict:
+    """Re-enqueue a failed/pending document. Caller must have already validated tenant scope."""
+    import tempfile
+    from datetime import UTC, datetime
+
+    from app.core.config import get_settings
+    from app.workers.celery_app import enqueue_ingestion
+
+    settings = get_settings()
+    doc.status = "pending"
+    doc.error_message = None
+    doc.updated_at = datetime.now(UTC)
+    await doc.save()
+
+    # We do not have the original file on disk (it was deleted after ingestion),
+    # so the retry will fail unless the file is re-uploaded. In a cloud setup
+    # this would re-pull from object storage; here we just mark it pending and
+    # surface a clear message to the operator.
+    log.info(
+        "document_retry_requested",
+        document_id=str(doc.id),
+        note="file_not_in_storage; re-upload required",
+    )
+    return {
+        "documentId": str(doc.id),
+        "status": doc.status,
+        "message": "Document reset to pending. Please re-upload the file.",
+    }
 
 
 async def _owned_doc(ctx: TenantContext, document_id: str) -> DocumentRecord:

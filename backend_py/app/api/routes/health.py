@@ -1,11 +1,13 @@
-"""Public + admin health endpoints."""
+"""Public + admin health + metrics endpoints."""
 from __future__ import annotations
 
 from fastapi import APIRouter
+from fastapi.responses import Response
 from structlog import get_logger
 
 from app.core.config import get_settings
 from app.core.db import ping_llm, ping_mongodb, ping_qdrant, ping_redis
+from app.observability.metrics import PROMETHEUS_AVAILABLE, render_metrics
 
 router = APIRouter()
 log = get_logger(__name__)
@@ -34,3 +36,10 @@ async def health() -> dict:
 @router.get("/health/live")
 async def liveness() -> dict:
     return {"status": "alive"}
+
+
+@router.get("/metrics")
+async def metrics() -> Response:
+    """Prometheus scrape endpoint (text format)."""
+    body, content_type = render_metrics()
+    return Response(content=body, media_type=content_type)

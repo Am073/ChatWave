@@ -19,7 +19,6 @@ Admin = Annotated[User, Depends(require_admin)]
 async def admin_stats(user: Admin, ctx: TenantContextDep):
     from app.services.admin_service import stats
 
-    # FIX[4]: Pass tenant college_name instead of generic scope
     return await stats(ctx.college_name)
 
 
@@ -41,7 +40,6 @@ async def admin_activity(
     from app.models.document import DocumentRecord
 
     activity: list[dict] = []
-    # FIX[4]: Filter activity by tenant college_name
     # Recent chat turns
     chats = (
         await ChatLog.find({"college_name": ctx.college_name})
@@ -87,7 +85,6 @@ async def admin_activity(
 async def admin_quality(user: Admin, ctx: TenantContextDep) -> dict:
     from app.services.admin_service import quality_summary
 
-    # FIX[4]: Pass tenant college_name
     return await quality_summary(ctx.college_name)
 
 
@@ -103,7 +100,6 @@ async def admin_list_users(
     """List users with optional filtering. Admin only."""
     from app.services.admin_service import list_users
 
-    # FIX[4]: Pass tenant college_name
     return await list_users(
         college_name=ctx.college_name,
         page=page, limit=limit, role=role, query=q,
@@ -118,7 +114,6 @@ async def admin_create_user(
     """Create a user on behalf of a college (admin operation)."""
     from app.services.admin_service import create_user
 
-    # FIX[4]: Pass tenant college_name for cross-tenant validation
     return await create_user(college_name=ctx.college_name, payload=payload)
 
 
@@ -128,7 +123,6 @@ async def admin_update_user(
 ) -> dict:
     from app.services.admin_service import update_user
 
-    # FIX[4]: Pass tenant college_name for tenant scope
     return await update_user(college_name=ctx.college_name, user_id=user_id, payload=payload)
 
 
@@ -136,7 +130,6 @@ async def admin_update_user(
 async def admin_delete_user(user: Admin, _: CSRFDep, ctx: TenantContextDep, user_id: str) -> dict:
     from app.services.admin_service import delete_user
 
-    # FIX[4]: Pass tenant college_name for tenant scope
     return await delete_user(college_name=ctx.college_name, user_id=user_id)
 
 
@@ -150,8 +143,70 @@ async def admin_list_documents(
 ) -> dict:
     from app.services.admin_service import list_documents
 
-    # FIX[4]: Pass tenant college_name for tenant scope
     return await list_documents(
         college_name=ctx.college_name,
         page=page, limit=limit, status=status,
     )
+
+
+@router.delete("/documents/{document_id}")
+async def admin_delete_document(
+    user: Admin, _: CSRFDep, ctx: TenantContextDep, document_id: str
+) -> dict:
+    """Admin-scoped document delete: removes the document + its Qdrant vectors."""
+    from app.services.upload_service import remove_document
+
+    return await remove_document(
+        college_name=ctx.college_name, document_id=document_id, user_id=str(user.id)
+    )
+
+
+@router.post("/documents/{document_id}/retry")
+async def admin_retry_document(
+    user: Admin, _: CSRFDep, ctx: TenantContextDep, document_id: str
+) -> dict:
+    """Re-enqueue a failed document for ingestion."""
+    from app.models.document import DocumentRecord
+    from app.core.errors import NotFoundError, ForbiddenError
+    from app.services.upload_service import retry_document
+
+    doc = await DocumentRecord.get(document_id)
+    if doc is None or doc.college_name != ctx.college_name:
+        raise NotFoundError("Document not found")
+    if doc.status not in ("failed", "pending"):
+        raise ForbiddenError("Only failed or pending documents can be retried")
+    return await retry_document(doc)
+
+
+# ---- Model management ------------------------------------------------------
+
+
+@router.get("/model")
+async def admin_get_model(user: Admin) -> dict:
+    """Return the active chat model + available catalog."""
+    from app.services.model_registry import get_model_status
+
+    return get_model_status()
+
+
+@router.post("/model")
+async def admin_set_model(user: Admin, _: CSRFDep, payload: dict) -> dict:
+    """Set the active chat model override (admin only)."""
+    from app.core.errors import ValidationAppError
+    from app.services.model_registry import set_model_override
+
+    model = payload.get("model")
+    if not model or not isinstance(model, str):
+        raise ValidationAppError("Body must include a 'model' string")
+    try:
+        return set_model_override(model)
+    except ValueError as exc:
+        raise ValidationAppError(str(exc)) from exc
+
+
+@router.delete("/model")
+async def admin_clear_model(user: Admin, _: CSRFDep) -> dict:
+    """Clear the active chat model override and revert to default."""
+    from app.services.model_registry import clear_model_override
+
+    return clear_model_override()

@@ -13,11 +13,3 @@ export function timeAgo(dateString) {
   if (d < 30) return `${d}d ago`;
   return `${Math.floor(d / 30)}mo ago`;
 }
-export function formatDate(dateString) {
-  if (!dateString) return '';
-  return new Date(dateString)
-    .toLocaleDateString('en-IN', {
-      day: 'numeric', month: 'short',
-      year: 'numeric'
-    });
-}

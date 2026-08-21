@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import api from '../../services/api';
+import { retryDocument as apiRetryDocument } from '../../services/uploadService';
 import { cn } from '../../utils/cn';
 
 const FILE_EMOJIS = { pdf: '📄', word: '📝', excel: '📊', image: '🖼' };
@@ -46,10 +47,14 @@ export default function UploadedDocumentsList({ collegeName, refreshTrigger }) {
     finally { setDeleting(null); }
   };
 
-  // FIX[5]: POST /upload/document/{id}/retry does not exist in backend
+  // FIX[5]: Backend now exposes POST /upload/{id}/retry
   const handleRetry = async (docId) => {
-    console.warn(`[FIX5] POST /api/upload/document/${docId}/retry is not implemented in the backend.`);
-    alert('This feature is not yet available.');
+    try {
+      await apiRetryDocument(docId);
+      await fetchDocs();
+    } catch (err) {
+      alert(err?.response?.data?.error || 'Retry failed');
+    }
   };
 
   if (loading) return (

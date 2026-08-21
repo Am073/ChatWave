@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import api from '../../services/api';
+import { deleteDocument as adminDeleteDocument, retryDocument as adminRetryDocument } from '../../services/adminService';
 import { cn } from '../../utils/cn';
 
 const MIME_TO_SHORT = {
@@ -53,16 +54,30 @@ export default function DocumentTable({ onRefresh }) {
 
   useEffect(() => { fetchDocs(); }, []);
 
-  // FIX[5]: DELETE /admin/documents/{id} does not exist in backend
   const handleDelete = async (id, name) => {
-    console.warn(`[FIX5] DELETE /api/admin/documents/${id} is not implemented in the backend.`);
-    alert('This feature is not yet available.');
+    if (!window.confirm(`Delete document "${name}"? This also removes its vectors.`)) return;
+    setDeleting(id);
+    try {
+      await adminDeleteDocument(id);
+      await fetchDocs();
+      onRefresh?.();
+    } catch (err) {
+      console.error('Admin document delete failed:', err);
+      alert(err?.response?.data?.error || 'Failed to delete document');
+    } finally {
+      setDeleting(null);
+    }
   };
 
-  // FIX[5]: POST /admin/documents/{id}/retry does not exist in backend
   const handleRetry = async (id) => {
-    console.warn(`[FIX5] POST /api/admin/documents/${id}/retry is not implemented in the backend.`);
-    alert('This feature is not yet available.');
+    try {
+      await adminRetryDocument(id);
+      await fetchDocs();
+      onRefresh?.();
+    } catch (err) {
+      console.error('Admin document retry failed:', err);
+      alert(err?.response?.data?.error || 'Failed to retry document');
+    }
   };
 
   return (

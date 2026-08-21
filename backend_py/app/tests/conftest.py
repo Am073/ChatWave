@@ -1,6 +1,5 @@
 """Pytest configuration.
 
-Phase 1 acceptance: Tests can start the FastAPI app.
 DB-touching tests are gated behind the `requires_db` marker. They auto-skip
 when MongoDB is unreachable so the suite remains useful offline.
 """
@@ -17,6 +16,8 @@ import pytest_asyncio  # noqa: E402
 from beanie import init_beanie  # noqa: E402
 from httpx import ASGITransport  # noqa: E402
 from motor.motor_asyncio import AsyncIOMotorClient  # noqa: E402
+# Patch Beanie compatibility with newer Motor versions
+AsyncIOMotorClient.append_metadata = lambda *args, **kwargs: None
 
 from app.core.config import get_settings  # noqa: E402
 from app.main import app  # noqa: E402
@@ -39,7 +40,7 @@ def event_loop():
 
 async def _mongo_reachable(uri: str) -> bool:
     try:
-        c = AsyncIOMotorClient(uri, serverSelectionTimeoutMS=800, connectTimeoutMS=800)
+        c = AsyncIOMotorClient(uri, serverSelectionTimeoutMS=5000, connectTimeoutMS=5000)
         await c.admin.command("ping")
         c.close()
         return True
@@ -53,9 +54,11 @@ _mongo_state: dict = {"available": None, "initialized": False}
 def _is_mongo_available() -> bool:
     if _mongo_state["available"] is None:
         try:
-            reachable = asyncio.get_event_loop().run_until_complete(
+            loop = asyncio.new_event_loop()
+            reachable = loop.run_until_complete(
                 _mongo_reachable(get_settings().mongo_uri)
             )
+            loop.close()
         except Exception:
             reachable = False
         _mongo_state["available"] = reachable
@@ -73,21 +76,29 @@ async def db_session():
     """Per-test fixture that ensures Beanie is initialized against Mongo."""
     if not _is_mongo_available():
         pytest.skip("MongoDB unavailable; this test requires a live database.")
-    if not _mongo_state["initialized"]:
-        settings = get_settings()
-        import app.core.db as db
+    
+    settings = get_settings()
+    import app.core.db as db
 
-        db._motor_client = AsyncIOMotorClient(
-            settings.mongo_uri, serverSelectionTimeoutMS=2000, connectTimeoutMS=2000
-        )
-        await db._motor_client.admin.command("ping")
-        await init_beanie(
-            database=db._motor_client.get_default_database(), document_models=MODELS
-        )
-        _mongo_state["initialized"] = True
+    db._motor_client = AsyncIOMotorClient(
+        settings.mongo_uri, serverSelectionTimeoutMS=10000, connectTimeoutMS=10000
+    )
+    await db._motor_client.admin.command("ping")
+    db_name = db._motor_client.get_default_database().name
+    if not db_name.endswith("_test"):
+        db_name += "_test"
+    await init_beanie(
+        database=db._motor_client[db_name], document_models=MODELS
+    )
+    
+    # Clear collections to ensure a clean slate for each test run
+    for model in MODELS:
+        await model.delete_all()
+        
     yield
-    # Note: we don't tear down between tests; Beanie models persist across
-    # the session. Individual tests should create unique identifiers.
+    if db._motor_client is not None:
+        db._motor_client.close()
+        db._motor_client = None
 
 
 @pytest_asyncio.fixture

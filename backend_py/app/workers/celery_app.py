@@ -37,7 +37,7 @@ celery_app.conf.update(
 
 def enqueue_ingestion(
     document_id: str,
-    file_path: str,  # FIX[3]: Pass file path instead of raw bytes for JSON serialization
+    file_path: str,
     college_name: str,
     department: str | None,
     mime_type: str,

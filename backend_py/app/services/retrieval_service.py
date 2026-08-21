@@ -22,7 +22,6 @@ from app.services.upload_service import collection_name
 log = get_logger(__name__)
 _settings = get_settings()
 
-# FIX[10]: Common English stop words for keyword extraction
 _STOP_WORDS = frozenset({
     "a", "an", "the", "is", "are", "was", "were", "be", "been", "being",
     "have", "has", "had", "do", "does", "did", "will", "would", "shall",
@@ -88,7 +87,6 @@ async def retrieve(
 
         query_filter = build_tenant_filter(ctx, include_department=include_department)
 
-        # FIX[10]: Add keyword-based pre-filter when hybrid mode is enabled
         if _settings.use_hybrid_filter:
             keywords = _extract_keywords(query)
             if keywords:

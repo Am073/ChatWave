@@ -116,21 +116,6 @@ async def get_current_user(
 CurrentUser = Annotated[User, Depends(get_current_user)]
 
 
-def require_roles(*roles: str):
-    """Dependency factory enforcing one of the allowed roles."""
-
-    async def _dep(user: CurrentUser) -> User:
-        if user.role not in roles:
-            raise ForbiddenError("Insufficient role privileges")
-        return user
-
-    return _dep
-
-
-def require_student(user: CurrentUser) -> User:
-    return user
-
-
 def require_faculty_or_admin(user: CurrentUser) -> User:
     if user.role not in ("faculty", "admin"):
         raise ForbiddenError("Faculty or admin role required")
@@ -184,16 +169,6 @@ def verify_csrf(request: Request) -> None:
 
 
 CSRFDep = Annotated[None, Depends(verify_csrf)]
-
-
-def issue_csrf(response: Response) -> CsrfResponse:
-    """Issue a fresh double-submit CSRF cookie + echoed token in body/header."""
-    from app.core.security import generate_csrf_token
-
-    token = generate_csrf_token()
-    _set_csrf_cookie(response, token)
-    response.headers["X-CSRF-Token"] = token
-    return CsrfResponse(csrfToken=token, accessToken="")
 
 
 def issue_csrf_with_access(response: Response, request: Request) -> CsrfResponse:

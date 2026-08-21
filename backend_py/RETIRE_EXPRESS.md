@@ -27,5 +27,5 @@ release. All parity checklist items below were satisfied before retirement.
 The Express `backend/` is no longer in the repo. To restore it for
 emergency rollback, see `CHATWAVE-INFO.md` and the v1 git history.
 
-`docker compose up` still brings up Mongo + Qdrant + Redis.
+Cloud-managed Mongo + Qdrant + Redis are configured in `backend_py/.env`.
 Frontend `VITE_API_BASE_URL` is the only switch needed to point at FastAPI.

@@ -11,7 +11,6 @@ from app.models.document import DocumentRecord
 from app.models.user import User
 from app.schemas.admin import AdminUserCreateIn, AdminUserUpdateIn
 
-# FIX[4]: All queries now accept and filter by college_name for tenant isolation.
 
 
 async def stats(college_name: str) -> dict:
@@ -44,7 +43,7 @@ async def stats(college_name: str) -> dict:
 
 
 async def quality_summary(college_name: str) -> dict:
-    """Phase 11: aggregate low-confidence / failed retrievals / missing-doc signals."""
+    """Aggregate low-confidence / failed retrievals / missing-doc signals."""
     since = datetime.now(UTC) - timedelta(days=7)
     base_q = {"college_name": college_name, "created_at": {"$gte": since}}
     total = await ChatLog.find(base_q).count()
@@ -76,19 +75,25 @@ async def list_users(
     college_name: str,
     page: int = 1, limit: int = 20, role: str | None = None, query: str | None = None
 ) -> dict:
-    filter_q: dict = {"college_name": college_name}  # FIX[4]: tenant scope
+    # ReDoS / full-enumeration guard: cap query length and escape regex
+    # metacharacters so a crafted `?q=.*` or `?q=(a+)+$` cannot blow up Mongo.
+    if query and len(query) > 64:
+        query = query[:64]
+    filter_q: dict = {"college_name": college_name}
     if role:
         filter_q["role"] = role
     q = User.find(filter_q)
     if query:
-        # Simple substring match on name/college_id
         from beanie.operators import Or, RegEx
 
+        import re as _re
+
+        safe = _re.escape(query)
         q = User.find(
-            {"college_name": college_name},  # FIX[4]: maintain tenant scope
+            {"college_name": college_name},
             Or(
-                RegEx(User.name, query, "i"),
-                RegEx(User.college_id, query, "i"),
+                RegEx(User.name, safe, "i"),
+                RegEx(User.college_id, safe, "i"),
             ),
         )
     total = await q.count()
@@ -114,7 +119,6 @@ async def list_users(
 
 
 async def create_user(college_name: str, payload: AdminUserCreateIn) -> dict:
-    # FIX[4]: Validate payload college_name matches admin's tenant
     if payload.college_name != college_name:
         from app.core.errors import AppError
 
@@ -140,7 +144,7 @@ async def create_user(college_name: str, payload: AdminUserCreateIn) -> dict:
 
 async def update_user(college_name: str, user_id: str, payload: AdminUserUpdateIn) -> dict:
     user = await User.get(user_id)
-    if user is None or user.college_name != college_name:  # FIX[4]: tenant scope
+    if user is None or user.college_name != college_name:
         raise NotFoundError("User not found")
     if payload.role is not None:
         user.role = payload.role  # type: ignore[assignment]
@@ -156,7 +160,7 @@ async def update_user(college_name: str, user_id: str, payload: AdminUserUpdateI
 
 async def delete_user(college_name: str, user_id: str) -> dict:
     user = await User.get(user_id)
-    if user is None or user.college_name != college_name:  # FIX[4]: tenant scope
+    if user is None or user.college_name != college_name:
         raise NotFoundError("User not found")
     # Soft delete: deactivate + invalidate refresh tokens
     user.is_active = False
@@ -172,7 +176,7 @@ async def list_documents(
     college_name: str,
     page: int = 1, limit: int = 50, status: str | None = None
 ) -> dict:
-    filter_q: dict = {"college_name": college_name}  # FIX[4]: tenant scope
+    filter_q: dict = {"college_name": college_name}
     if status:
         filter_q["status"] = status
     total = await DocumentRecord.find(filter_q).count()

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useAuth } from "../context/AuthContext";
 import { getAnnouncements, markAsRead } from "../services/announcementService";
 import AnnouncementCard from "../components/Feed/AnnouncementCard";
@@ -7,8 +7,17 @@ import ChatWindow from "../components/Chat/ChatWindow";
 import BottomNav from "../components/Layout/BottomNav";
 import SettingsModal from "../components/Settings/SettingsModal";
 import { useCalendarConnectionToast } from "../hooks/useCalendarIntegration";
+import { useAnnouncementStream } from "../hooks/useAnnouncementStream";
 import { timeAgo } from "../utils/dateHelpers";
 import { cn } from "../utils/cn";
+
+const mapAnnouncement = (a, userId) => ({
+  ...a,
+  id: a._id,
+  created_at: a.createdAt,
+  posted_by_name: a.author?.name || "Faculty",
+  is_read: a.read_by?.includes(userId) || false
+});
 
 export default function StudentDashboard() {
   const { user } = useAuth();
@@ -17,18 +26,14 @@ export default function StudentDashboard() {
   const [unreadCount, setUnreadCount] = useState(0);
   const [announcements, setAnnouncements] = useState([]);
   const [activeAnnId, setActiveAnnId] = useState(null);
+  const { events: liveEvents } = useAnnouncementStream(user?.id || user?._id);
+  const processedLiveRef = useRef(0);
 
   const fetchData = async () => {
     try {
       const annRes = await getAnnouncements({ limit: 50 });
       const userId = user?.id || user?._id;
-      const mapped = (annRes.data || []).map(a => ({
-        ...a,
-        id: a._id,
-        created_at: a.createdAt,
-        posted_by_name: a.author?.name || "Faculty",
-        is_read: a.read_by?.includes(userId) || false
-      }));
+      const mapped = (annRes.data || []).map(a => mapAnnouncement(a, userId));
       setAnnouncements(mapped);
       setUnreadCount(mapped.filter(a => !a.is_read).length);
     } catch (err) {
@@ -39,6 +44,23 @@ export default function StudentDashboard() {
   useEffect(() => {
     fetchData();
   }, []);
+
+  // Live SSE announcements: merge newly pushed items into feed + unread badge.
+  useEffect(() => {
+    const fresh = liveEvents.slice(processedLiveRef.current);
+    processedLiveRef.current = liveEvents.length;
+    if (!fresh.length) return;
+    const userId = user?.id || user?._id;
+    const incoming = fresh
+      .map(e => e.announcement)
+      .filter(Boolean)
+      .map(a => mapAnnouncement(a, userId));
+    setAnnouncements(prev => {
+      const seen = new Set(prev.map(a => a.id));
+      return [...incoming.filter(a => !seen.has(a.id)), ...prev];
+    });
+    setUnreadCount(c => c + incoming.length);
+  }, [liveEvents]);
 
   useCalendarConnectionToast();
 

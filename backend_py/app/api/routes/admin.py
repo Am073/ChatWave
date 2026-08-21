@@ -210,3 +210,11 @@ async def admin_clear_model(user: Admin, _: CSRFDep) -> dict:
     from app.services.model_registry import clear_model_override
 
     return await clear_model_override()
+
+
+@router.get("/mcp/tools")
+async def admin_mcp_tools(user: Admin) -> list[dict]:
+    """Introspect the MCP tool surface exposed to the agent / external clients."""
+    from app.mcp.client import list_mcp_tools
+
+    return await list_mcp_tools()

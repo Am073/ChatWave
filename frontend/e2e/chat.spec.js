@@ -60,14 +60,15 @@ test.describe('B2-B4: Student Dashboard & Settings', () => {
     const chatInput = page.locator('input[placeholder="Ask anything about your college..."]');
     await chatInput.fill('Temporary Message');
     await chatInput.press('Enter');
-    await expect(page.locator('text=Temporary Message')).toBeVisible();
-    
+    // The bot reply may echo the phrase too — match the first occurrence only.
+    await expect(page.locator('text=Temporary Message').first()).toBeVisible();
+
     // Click clear
     await page.click('button:has-text("Clear")');
-    
+
     // Verify we go back to greeting/empty state and message is gone
     await expect(page.locator('text=How can I help you today?')).toBeVisible();
-    await expect(page.locator('text=Temporary Message')).not.toBeVisible();
+    await expect(page.locator('text=Temporary Message')).toHaveCount(0);
   });
 
   test('90-91: Switch to announcements tab', async ({ page }) => {

@@ -45,7 +45,6 @@ export default function StudentDashboard() {
     // never synchronously during the effect.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Live SSE announcements: merge newly pushed items into feed + unread badge.

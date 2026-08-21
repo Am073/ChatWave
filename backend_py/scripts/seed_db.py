@@ -1,14 +1,16 @@
 import asyncio
-from motor.motor_asyncio import AsyncIOMotorClient
-from beanie import init_beanie
-from app.core.config import get_settings
-from app.models.user import User
-from app.core.security import hash_password
 
 # Apply monkey patch for bcrypt version compatibility
 import bcrypt
+from beanie import init_beanie
+from motor.motor_asyncio import AsyncIOMotorClient
+
+from app.core.config import get_settings
+from app.core.security import hash_password
+from app.models.user import User
+
 if not hasattr(bcrypt, "__about__"):
-    setattr(bcrypt, "__about__", type("About", (), {"__version__": bcrypt.__version__})())
+    bcrypt.__about__ = type("About", (), {"__version__": bcrypt.__version__})()
 
 _orig_hashpw = bcrypt.hashpw
 def _patched_hashpw(password, salt):

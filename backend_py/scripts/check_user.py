@@ -1,13 +1,15 @@
 import asyncio
-from motor.motor_asyncio import AsyncIOMotorClient
-from beanie import init_beanie
-from app.core.config import get_settings
-from app.models.user import User
 
 # Apply monkey patch just in case
 import bcrypt
+from beanie import init_beanie
+from motor.motor_asyncio import AsyncIOMotorClient
+
+from app.core.config import get_settings
+from app.models.user import User
+
 if not hasattr(bcrypt, "__about__"):
-    setattr(bcrypt, "__about__", type("About", (), {"__version__": bcrypt.__version__})())
+    bcrypt.__about__ = type("About", (), {"__version__": bcrypt.__version__})()
 
 _orig_hashpw = bcrypt.hashpw
 def _patched_hashpw(password, salt):
@@ -21,7 +23,8 @@ bcrypt.hashpw = _patched_hashpw
 # Patch Beanie compatibility with newer Motor versions
 AsyncIOMotorClient.append_metadata = lambda *args, **kwargs: None
 
-from app.core.security import verify_password
+from app.core.security import verify_password  # noqa: E402
+
 
 async def check():
     settings = get_settings()

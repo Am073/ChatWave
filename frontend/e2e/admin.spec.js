@@ -46,7 +46,7 @@ test.describe('B6: Admin Dashboard Suite', () => {
     // Check header widgets
     await expect(page.locator('text=Total Sources')).toBeVisible();
     await expect(page.locator('text=Global Chunks')).toBeVisible();
-    await expect(page.locator('text=RAG Precision')).toBeVisible();
+    await expect(page.locator('text=Grounded Answers (7d)')).toBeVisible();
   });
 
   test('109 & 116: Upload tab works', async ({ page }) => {

@@ -7,10 +7,7 @@ from __future__ import annotations
 
 from datetime import date
 
-import pytest
-
 from app.services.date_extractor import (
-    DetectedDate,
     extract_dates,
     merge_date_sources,
 )
@@ -89,7 +86,8 @@ class TestExtractDates:
     def test_context_window_includes_surrounding_text(self):
         text = "The mid-term examination in Physics is scheduled for 2026-03-15."
         results = extract_dates(text)
-        assert "mid-term" in results[0].context.lower() or "examination" in results[0].context.lower()
+        ctx = results[0].context.lower()
+        assert "mid-term" in ctx or "examination" in ctx
 
     def test_confidence_high_for_iso(self):
         results = extract_dates("On 2026-03-15 we have a meeting.")

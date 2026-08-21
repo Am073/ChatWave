@@ -1,17 +1,21 @@
 import pytest
 from fastapi.testclient import TestClient
+
 from app.main import app
 from app.tests.conftest import requires_db
+
 
 @pytest.mark.asyncio
 @requires_db
 async def test_ws_unauthorized(db_session):
-    with TestClient(app) as client:
-        # Connecting without cookies should trigger a 4401 close
-        with pytest.raises(Exception) as excinfo:
-            with client.websocket_connect("/api/chat/ws") as websocket:
-                pass
-        assert getattr(excinfo.value, "code", None) == 4401
+    # Connecting without cookies should trigger a 4401 close
+    with (
+        TestClient(app) as client,
+        pytest.raises(Exception) as excinfo,
+        client.websocket_connect("/api/chat/ws"),
+    ):
+        pass
+    assert getattr(excinfo.value, "code", None) == 4401
 
 
 @pytest.mark.asyncio

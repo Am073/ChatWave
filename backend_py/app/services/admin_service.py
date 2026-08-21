@@ -12,7 +12,6 @@ from app.models.user import User
 from app.schemas.admin import AdminUserCreateIn, AdminUserUpdateIn
 
 
-
 async def stats(college_name: str) -> dict:
     """Dashboard stats scoped to a single tenant."""
     tenant_q = {"college_name": college_name}
@@ -84,9 +83,9 @@ async def list_users(
         filter_q["role"] = role
     q = User.find(filter_q)
     if query:
-        from beanie.operators import Or, RegEx
-
         import re as _re
+
+        from beanie.operators import Or, RegEx
 
         safe = _re.escape(query)
         q = User.find(

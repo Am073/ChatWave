@@ -11,11 +11,16 @@ Design:
 """
 from __future__ import annotations
 
+import contextlib
 import time
 import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any
+
+from app.core.logging import get_logger
+
+log = get_logger(__name__)
 
 
 class _NoOpTracer:
@@ -75,10 +80,8 @@ class _LangfuseTracer:
 
     def flush(self) -> None:
         """Flush buffered events to Langfuse. Call on shutdown."""
-        try:
+        with contextlib.suppress(Exception):
             self._client.flush()
-        except Exception:  # noqa: BLE001
-            pass
 
     def log_event(
         self, name: str, metadata: dict[str, Any] | None = None, level: str = "INFO"

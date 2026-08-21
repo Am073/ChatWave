@@ -1,7 +1,7 @@
 # ChatWave — Complete Technical Documentation
 
 **Version:** 2.0.0  
-**Last updated:** July 6, 2026  
+**Last updated:** August 21, 2026  
 **Stack:** FastAPI + React 19 + MongoDB Atlas + Qdrant Cloud + Redis Cloud  
 **Architecture:** Multi-tenant agentic AI platform for educational institutions
 
@@ -105,7 +105,7 @@ ChatWave is a production-grade, multi-tenant agentic AI platform for educational
 │  8. Prometheus Metrics                                   │
 │                                                         │
 │  Routes: /api/*                                          │
-│  Agent: LangGraph 5-node state machine                   │
+│  Agent: LangGraph 7-node state machine                   │
 │  MCP: Model Context Protocol tools                       │
 └───────┬──────────────┬──────────────┬───────────────────┘
         │              │              │
@@ -183,13 +183,13 @@ chatWave/
 │   │   │   ├── admin_service.py     # Stats, quality, user CRUD, document listing
 │   │   │   ├── calendar_service.py  # Google OAuth flow + Calendar API (no SDK)
 │   │   │   ├── date_extractor.py    # NLP date detection from unstructured text
-│   │   │   ├── model_registry.py    # Runtime model switching (in-memory)
+│   │   │   ├── model_registry.py    # Runtime model switching (Redis-backed)
 │   │   │   ├── retrieval_service.py # Qdrant vector search + hybrid filter
 │   │   │   └── ingestion_service.py # Document parsing, chunking, embedding
 │   │   │
 │   │   ├── agents/                  # LangGraph agent
 │   │   │   ├── state.py             # AgentState (typed Pydantic model)
-│   │   │   ├── graph.py             # 5-node state machine
+│   │   │   ├── graph.py             # 7-node state machine (5 pipeline + clarify/refuse)
 │   │   │   ├── tools.py             # search_documents + get_announcements
 │   │   │   └── prompts.py           # System + answer prompt templates
 │   │   │
@@ -206,7 +206,7 @@ chatWave/
 │   │   │   └── announcement_bus.py  # In-process pub/sub for SSE announcements
 │   │   │
 │   │   ├── mcp/
-│   │   │   ├── server.py            # MCP server (FastMCP) tool definitions
+│   │   │   ├── server.py            # MCP server (mcp MCPServer) tool definitions
 │   │   │   └── client.py            # MCP client for LangGraph agent
 │   │   │
 │   │   ├── workers/
@@ -219,7 +219,7 @@ chatWave/
 │   │   │
 │   │   ├── evals/
 │   │   │   ├── datasets.py          # Evaluation datasets
-│   │   │   └── run_agent_evals.py   # Ragas/DeepEval evaluation runners
+│   │   │   └── run_rag_evals.py     # DeepEval RAG evaluation runner (offline + --live modes)
 │   │   │
 │   │   └── tests/                   # Pytest test suite (12 test files)
 │   │       ├── conftest.py          # Fixtures: event_loop, db_session, client
@@ -441,12 +441,17 @@ Client → Server:
 
 Server → Client:
 - `{"type": "ready", "userId": "...", "sessionId": "..."}`
-- `{"type": "status", "stage": "searching"|"started"|"answered"|"cancelled"}`
+- `{"type": "status", "stage": "started"|"answered"|"cancelled"}`
 - `{"type": "sources", "sources": [...]}`
-- `{"type": "token", "content": "..."}` (streamed in 4-char chunks)
+- `{"type": "token", "content": "..."}` (real LLM deltas, streamed as generated)
 - `{"type": "final", "answer": "...", "traceId": "...", "model": "...", "confidence": "...", "detectedDates": [...]}`
 - `{"type": "error", "message": "..."}`
 - `{"type": "pong"}`
+
+Streaming is real: the answer generator consumes the LLM stream and forwards
+deltas over SSE/WS as they arrive. `cancel` hard-aborts the in-flight LLM call
+(task cancellation), not just frame forwarding. Receive and stream run as
+competing tasks, so ping/cancel frames are processed mid-stream.
 
 ### 5.4 Upload
 
@@ -592,7 +597,7 @@ Calendar service uses direct Google REST API calls via `httpx` — no heavy `goo
 
 ### 8.1 LangGraph State Machine (`app/agents/graph.py`)
 
-5-node directed graph with conditional routing:
+7-node directed graph (5 pipeline + 2 terminal) with conditional routing:
 
 ```
 intent_classifier → context_retriever → sufficiency_check ─┬─→ answer_generator → citation_validator → END
@@ -605,9 +610,9 @@ intent_classifier → context_retriever → sufficiency_check ─┬─→ answe
 | Node | Function | Description |
 |------|----------|-------------|
 | `intent_classifier` | 8-token LLM call to label intent | Classifies as `policy_lookup`, `announcement_lookup`, `general`, or `refuse` |
-| `context_retriever` | MCP-backed tool call | Call `search_documents` (policy/general) or `get_announcements` (announcement) |
+| `context_retriever` | MCP-backed tool call | Call `search_documents` (policy/general) or `get_announcements` (announcement); emits the sources event for streaming transports |
 | `sufficiency_check` | Router logic | Checks if sources exist, if clarification already asked, if max iterations reached |
-| `answer_generator` | Full LLM completion | Generates answer with system prompt (grounded in college context) |
+| `answer_generator` | Streaming LLM completion | Generates the answer via LiteLLM with `stream=True`; forwards each delta to the transport's token queue in real time |
 | `citation_validator` | Post-processing | Sets confidence to "high" if grounded sources exist, "low" otherwise |
 | `clarify` | Static response | Returns clarification question when sources are insufficient (first time) |
 | `refuse` | Static response | Returns refusal when sources are insufficient (second time) or max iterations hit |
@@ -681,9 +686,9 @@ Usage in agent graph:
 - `enqueue_upload()` — validate file type/size, create DocumentRecord, write temp file, enqueue Celery task
 - `list_documents()` — tenant-scoped document listing
 - `get_status()` — document status with chunk_count, error_message
-- `remove()` — delete document + Qdrant vectors, ownership check
+- `remove()` — delete document + Qdrant vectors + stored file, ownership check
 - `remove_document()` — admin-scoped delete (no ownership check)
-- `retry_document()` — reset status to pending (requires re-upload)
+- `retry_document()` — re-enqueue ingestion from the stored upload bytes (legacy records without a stored file get a re-upload request)
 
 ### `admin_service.py`
 - `stats()` — tenant-scoped counts: users (by role), documents (by status), announcements, chats
@@ -710,7 +715,7 @@ Usage in agent graph:
 - Used by chat service to detect calendar-worthy dates in AI responses
 
 ### `model_registry.py`
-- Thread-safe in-memory model override storage
+- Redis-backed model override storage (per-process mirror fallback when Redis is down)
 - `get_active_chat_model()`, `set_model_override()`, `clear_model_override()`, `get_model_status()`
 - Validates model is in available catalog before switching
 - Consulted by `chat_service.resolve_model()` on every request
@@ -878,17 +883,29 @@ Run the worker: `uv run celery -A app.workers.celery_app.celery_app worker -l in
 
 ### `app/mcp/server.py`
 
-Defines two MCP tools using FastMCP:
-- `mcp_search_documents(query, user_id, role, college_name, department, top_k=5, trace_id=None)` — tenant-scoped vector search
-- `mcp_get_announcements(user_id, role, college_name, department, limit=10, trace_id=None)` — tenant-scoped announcement feed
+Registers the agent's two read-only tools on an `MCPServer` (the
+FastMCP-style API shipped with the official `mcp` package):
+
+- `search_documents(query, user_id, role, college_name, department, top_k=5, trace_id=None)` — tenant-scoped vector search
+- `get_announcements(user_id, role, college_name, department, limit=10, trace_id=None)` — tenant-scoped announcement feed
+
+Tenant scope is passed explicitly per call — the server never infers identity.
+Running the module directly (`uv run python -m app.mcp.server`) serves the
+tools over stdio, so external MCP clients (e.g. Claude Desktop) can use them.
 
 ### `app/mcp/client.py`
 
-Thin client that the LangGraph agent uses to invoke MCP tools:
-- `call_mcp_tool()` — dispatches to the correct server function
-- `list_mcp_tools()` — returns tool specs for admin introspection
-- `as_langgraph_tools()` — converts to LangGraph-compatible format
-- In-process implementation (no serialization round-trip), but the API matches what a remote MCP-over-SSE client would use
+The dispatch layer the LangGraph agent routes tool calls through:
+
+- `call_mcp_tool()` — invokes a tool via the server's own dispatch (schema
+  validation included) and unwraps the structured result
+- `list_mcp_tools()` — returns tool specs; backs `GET /api/admin/mcp/tools`
+- In-process (no serialization round-trip); swapping in a remote stdio/SSE
+  transport only changes this module
+
+Agent tools in `app/agents/tools.py` try MCP dispatch first and fall back to
+calling the implementation directly if MCP fails — an MCP outage can never
+break chat. Every call is audited either way.
 
 ---
 
@@ -917,12 +934,12 @@ Lightweight in-process pub/sub for fanning out announcement events to SSE subscr
 | React | 19.2 | UI framework |
 | Vite | 7.3 | Build tool + dev server |
 | React Router | 7.13 | Client-side routing |
-| TanStack Query | 5.101 | Server state management |
-| Axios | 1.13 | HTTP client |
+| TanStack Query | 5.101 | Server state for polling hooks (admin stats, doc status, calendar) |
+| Axios | 1.13 | HTTP client with 401-refresh + CSRF interceptors |
 | Tailwind CSS | 3.4 | Utility-first CSS |
-| Framer Motion | 12.36 | Animations |
+| Framer Motion | 12.36 | Login form entrance animation |
 | Lucide React | 0.577 | Icons |
-| Three.js | 0.128 | 3D background |
+| Three.js | 0.128 | 3D background (login page) |
 | Vitest | 2.1 | Unit tests |
 | React Testing Library | 16.0 | Component tests |
 | Playwright | 1.58 | E2E tests |
@@ -936,10 +953,10 @@ Lightweight in-process pub/sub for fanning out announcement events to SSE subscr
 | `CalendarButton` | "Add to Google Calendar" button for detected dates |
 | `BulkDatePicker` | Multi-date calendar picker for bulk event creation |
 | `AdminDashboard` | Admin panel with stats, users, documents, model switcher |
-| `ModelSwitcher` | Dropdown to switch AI model at runtime |
+| `ModelSwitcher` | Dropdown to switch AI model at runtime (Redis-backed override) |
 | `DocumentTable` | Document listing with status indicators |
 | `GoogleCalendarSection` | OAuth connect/disconnect + event list |
-| `AnnouncementFeed` | Live SSE-powered announcement stream |
+| `AnnouncementCard` / `AnnouncementsPage` | Sidebar feed cards + full-page announcements view |
 | `ThreeBackground` | Animated 3D particle background |
 
 ### Custom Hooks
@@ -948,7 +965,7 @@ Lightweight in-process pub/sub for fanning out announcement events to SSE subscr
 |------|-------------|
 | `useChatStream` | WebSocket connection with auto-reconnect, cancel support, token buffering |
 | `useCalendarIntegration` | Google Calendar OAuth flow + event CRUD |
-| `useAnnouncementStream` | SSE subscription for real-time announcements |
+| `useAnnouncementStream` | SSE subscription wired into the student dashboard: pushed announcements merge into the live feed and bump the unread badge |
 
 ### Frontend Route Structure
 

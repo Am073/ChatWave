@@ -18,7 +18,6 @@ from app.core.errors import register_exception_handlers
 from app.core.logging import setup_logging
 from app.core.rate_limiter import RateLimitMiddleware
 from app.core.request_logging import RequestLoggingMiddleware
-from app.observability.metrics import PrometheusMiddleware
 from app.models.announcement import Announcement
 from app.models.audit_event import AuditEvent
 from app.models.calendar_event import CalendarEvent
@@ -26,6 +25,7 @@ from app.models.chat_log import ChatLog
 from app.models.document import DocumentRecord
 from app.models.google_token import UserGoogleToken
 from app.models.user import User
+from app.observability.metrics import PrometheusMiddleware
 
 _settings = get_settings()
 
@@ -100,11 +100,16 @@ def create_app() -> FastAPI:
     async def add_security_headers(request: Request, call_next):
         response = await call_next(request)
         if _settings.is_production:
-            response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+            response.headers.setdefault(
+                "Strict-Transport-Security",
+                "max-age=31536000; includeSubDomains",
+            )
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
         response.headers.setdefault("X-Frame-Options", "DENY")
         response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
-        response.headers.setdefault("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
+        response.headers.setdefault(
+            "Permissions-Policy", "geolocation=(), microphone=(), camera=()"
+        )
         return response
 
     app.add_middleware(GZipMiddleware, minimum_size=1024)

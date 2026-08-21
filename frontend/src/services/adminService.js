@@ -23,3 +23,9 @@ export const retryDocument = (documentId) =>
 export const getModelStatus = () => api.get('/admin/model');
 export const setModel = (model) => api.post('/admin/model', { model });
 export const clearModel = () => api.delete('/admin/model');
+
+// AI quality summary (7-day grounded-answer rates, failed ingestions).
+export const getQuality = () => api.get('/admin/quality');
+
+// MCP tool surface exposed to the agent / external clients.
+export const getMcpTools = () => api.get('/admin/mcp/tools');

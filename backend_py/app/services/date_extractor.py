@@ -22,7 +22,6 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from datetime import date, datetime
-from typing import Iterable
 
 try:
     from dateutil import parser as date_parser  # type: ignore[import-not-found]

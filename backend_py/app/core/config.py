@@ -87,7 +87,6 @@ class Settings(BaseSettings):
 
     # ---- Agent loop control ----
     agent_max_iterations: int = 5
-    agent_max_tool_calls: int = 5
     retrieval_top_k: int = 5
     use_hybrid_filter: bool = True
 

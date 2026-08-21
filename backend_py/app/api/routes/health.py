@@ -7,7 +7,7 @@ from structlog import get_logger
 
 from app.core.config import get_settings
 from app.core.db import ping_llm, ping_mongodb, ping_qdrant, ping_redis
-from app.observability.metrics import PROMETHEUS_AVAILABLE, render_metrics
+from app.observability.metrics import render_metrics
 
 router = APIRouter()
 log = get_logger(__name__)

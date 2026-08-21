@@ -17,7 +17,6 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
-import json
 import secrets
 from datetime import UTC, datetime
 from typing import Any
@@ -91,7 +90,7 @@ def generate_state(user_id: str) -> str:
     nonce = secrets.token_urlsafe(16)
     sig = hmac.new(
         _security_settings.csrf_secret.encode("utf-8"),
-        f"{user_id}:{nonce}".encode("utf-8"),
+        f"{user_id}:{nonce}".encode(),
         hashlib.sha256,
     ).hexdigest()
     return f"{user_id}.{nonce}.{sig}"
@@ -105,7 +104,7 @@ def verify_state(state: str) -> str:
         raise AppError("Invalid OAuth state", status_code=400) from exc
     expected = hmac.new(
         _security_settings.csrf_secret.encode("utf-8"),
-        f"{user_id}:{nonce}".encode("utf-8"),
+        f"{user_id}:{nonce}".encode(),
         hashlib.sha256,
     ).hexdigest()
     if not hmac.compare_digest(sig, expected):

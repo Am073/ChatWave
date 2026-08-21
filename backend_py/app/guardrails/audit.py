@@ -7,6 +7,7 @@ mirror as a defense-in-depth fallback.
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import time
 from pathlib import Path
@@ -116,14 +117,12 @@ def _log_to_langfuse(record: dict[str, Any]) -> None:
     tracer = get_tracer()
     if tracer is None:
         return
-    try:
+    with contextlib.suppress(Exception):
         tracer.log_event(
             record.get("kind", "event"),
             metadata=record,
             level="ERROR" if record.get("ok") is False else "INFO",
         )
-    except Exception:
-        pass
 
 
 def _scrub(payload: dict[str, Any] | None) -> dict[str, Any] | None:

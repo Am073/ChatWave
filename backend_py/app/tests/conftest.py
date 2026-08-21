@@ -19,6 +19,7 @@ import pytest_asyncio  # noqa: E402
 from beanie import init_beanie  # noqa: E402
 from httpx import ASGITransport  # noqa: E402
 from motor.motor_asyncio import AsyncIOMotorClient  # noqa: E402
+
 # Patch Beanie compatibility with newer Motor versions
 AsyncIOMotorClient.append_metadata = lambda *args, **kwargs: None
 

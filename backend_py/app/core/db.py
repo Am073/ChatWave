@@ -1,18 +1,20 @@
 """Database connection management: Beanie/Mongo, Qdrant, Redis lazy clients."""
 from __future__ import annotations
 
+from contextlib import suppress
 from typing import Any
 
 from beanie import Document, init_beanie
 from motor.motor_asyncio import AsyncIOMotorClient
-# Patch Beanie compatibility with newer Motor versions
-AsyncIOMotorClient.append_metadata = lambda *args, **kwargs: None
+from qdrant_client import AsyncQdrantClient  # noqa: E402 - must follow the patch
+from redis.asyncio import Redis  # noqa: E402
 
-from qdrant_client import AsyncQdrantClient
-from redis.asyncio import Redis
+# Patch Beanie compatibility with newer Motor versions (must run before
+# beanie touches motor objects at import time in dependent modules).
+AsyncIOMotorClient.append_metadata = lambda *args, **kwargs: None  # noqa: B010
 
-from app.core.config import get_settings
-from app.core.logging import get_logger
+from app.core.config import get_settings  # noqa: E402
+from app.core.logging import get_logger  # noqa: E402
 
 log = get_logger(__name__)
 
@@ -76,10 +78,8 @@ def get_qdrant_client() -> AsyncQdrantClient:
 async def close_qdrant() -> None:
     global _qdrant_client
     if _qdrant_client is not None:
-        try:
+        with suppress(Exception):
             await _qdrant_client.close()
-        except Exception:
-            pass
         _qdrant_client = None
 
 
@@ -100,10 +100,8 @@ async def close_redis() -> None:
     global _redis
     if _redis is not None:
         log.info("closing_redis")
-        try:
+        with suppress(Exception):
             await _redis.aclose()
-        except Exception:
-            pass
         _redis = None
 
 

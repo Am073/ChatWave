@@ -26,7 +26,7 @@ const CATEGORY_STYLES = {
   },
 };
 
-export default function AllAnnouncementsList({ refreshTrigger }) {
+export default function AllAnnouncementsList({ refreshTrigger, authorId }) {
   const [announcements, setAnnouncements] = useState([]);
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState(null);
@@ -37,7 +37,15 @@ export default function AllAnnouncementsList({ refreshTrigger }) {
     setLoading(true);
     try {
       const res = await api.get('/announcements/', { params: { limit: 100 } });
-      const data = res.data?.announcements || res.data || [];
+      let data = res.data?.announcements || res.data || [];
+      if (authorId) {
+        // "My posts" view: keep only announcements authored by this user.
+        data = data.filter((a) => {
+          const authorKey =
+            a.author?._id || a.author?.id || (typeof a.author === 'string' ? a.author : '');
+          return String(authorKey) === String(authorId);
+        });
+      }
       setAnnouncements(data);
     } catch (e) {
       console.error('Fetch announcements:', e);
@@ -83,10 +91,12 @@ export default function AllAnnouncementsList({ refreshTrigger }) {
       <div className="flex items-center justify-between">
         <div>
           <h3 className="font-outfit text-sm font-semibold text-cw-t1">
-            All Announcements
+            {authorId ? 'My Announcements' : 'All Announcements'}
           </h3>
           <p className="text-[11px] text-cw-t3 mt-0.5">
-            All announcements posted in your college
+            {authorId
+              ? 'Announcements you have posted'
+              : 'All announcements posted in your college'}
           </p>
         </div>
         <button onClick={fetchAll} className="cw-btn-secondary">

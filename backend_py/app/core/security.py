@@ -13,15 +13,15 @@ import secrets
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+# Patch passlib compatibility with newer bcrypt versions
+import bcrypt
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 
 from app.core.config import get_settings
 
-# Patch passlib compatibility with newer bcrypt versions
-import bcrypt
 if not hasattr(bcrypt, "__about__"):
-    setattr(bcrypt, "__about__", type("About", (), {"__version__": bcrypt.__version__})())
+    bcrypt.__about__ = type("About", (), {"__version__": bcrypt.__version__})()
 
 _orig_hashpw = bcrypt.hashpw
 def _patched_hashpw(password, salt):

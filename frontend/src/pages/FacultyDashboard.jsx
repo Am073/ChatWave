@@ -4,6 +4,7 @@ import BottomNav from "../components/Layout/BottomNav";
 import DocumentUpload from "../components/Upload/DocumentUpload";
 import UploadedDocumentsList from '../components/Upload/UploadedDocumentsList';
 import PostAnnouncement from "../components/Upload/PostAnnouncement";
+import AllAnnouncementsList from "../components/Admin/AllAnnouncementsList";
 import SettingsModal from "../components/Settings/SettingsModal";
 import { useCalendarConnectionToast } from "../hooks/useCalendarIntegration";
 import { cn } from "../utils/cn";
@@ -57,7 +58,14 @@ export default function FacultyDashboard() {
       </div>
 
       {/* Body Grid */}
-      <main className="flex-1 p-5 grid grid-cols-1 md:grid-cols-2 gap-4 items-start overflow-y-auto">
+      {activeNav === "history" ? (
+        <main className="flex-1 p-5 overflow-y-auto">
+          <div className="max-w-4xl mx-auto">
+            <AllAnnouncementsList authorId={user?.id || user?._id} />
+          </div>
+        </main>
+      ) : (
+        <main className="flex-1 p-5 grid grid-cols-1 md:grid-cols-2 gap-4 items-start overflow-y-auto">
 
         {/* Upload Panel */}
         <div className="cw-card p-5 flex flex-col gap-3.5">
@@ -84,7 +92,8 @@ export default function FacultyDashboard() {
           <PostAnnouncement />
         </div>
 
-      </main>
+        </main>
+      )}
 
       <div className="md:hidden">
         <BottomNav activeTab={activeNav} onTabChange={setActiveNav} role="faculty" />

@@ -39,6 +39,10 @@ export default function Login() {
     }
   };
 
+  // Demo accounts ship only when the build opts in (VITE_DEMO_MODE=true).
+  // Keeps seeded recruiter credentials out of production bundles.
+  const SHOW_DEMO_ACCOUNTS = import.meta.env.VITE_DEMO_MODE === 'true';
+
   const TEST_CREDENTIALS = {
     student: { id: 'CW-STUDENT', password: 'Password@123', name: 'Aarav Sharma' },
     faculty: { id: 'CW-FACULTY', password: 'Password@123', name: 'Dr. Rajesh Kumar' },
@@ -98,7 +102,8 @@ export default function Login() {
           ))}
         </div>
 
-        {/* Test credentials hint for recruiters */}
+        {/* Test credentials hint for recruiters (demo builds only) */}
+        {SHOW_DEMO_ACCOUNTS && (
         <div className="mb-5 px-3 py-2.5 rounded-xl border border-white/[0.07] bg-white/[0.02]">
           <div className="flex items-center justify-between mb-2">
             <span className="text-[10px] text-cw-t3 font-medium uppercase tracking-wider">
@@ -133,6 +138,7 @@ export default function Login() {
             </div>
           </div>
         </div>
+        )}
 
         <div className="mb-2.5">
           <label className="block text-[11px] text-cw-t3 mb-1">College ID</label>

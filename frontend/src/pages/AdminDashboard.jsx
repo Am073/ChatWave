@@ -13,7 +13,7 @@ import SettingsModal from "../components/Settings/SettingsModal";
 import ModelSwitcher from "../components/Admin/ModelSwitcher";
 import { useAdminStats } from "../hooks/useAdminStats";
 import { useCalendarConnectionToast } from "../hooks/useCalendarIntegration";
-import { getActivity, getHealth } from "../services/adminService";
+import { getActivity, getHealth, getQuality } from "../services/adminService";
 import { cn } from "../utils/cn";
 
 const TABS = [
@@ -33,6 +33,7 @@ export default function AdminDashboard() {
   const [loadingExtras, setLoadingExtras] = useState(true);
   const [announcementRefresh, setAnnouncementRefresh] = useState(0);
   const [docListRefresh, setDocListRefresh] = useState(0);
+  const [quality, setQuality] = useState(null);
   const { user } = useAuth();
 
   const fetchAdminData = async () => {
@@ -55,6 +56,14 @@ export default function AdminDashboard() {
     const interval = setInterval(fetchAdminData, 60000);
     return () => clearInterval(interval);
   }, []);
+
+  // AI quality summary for the Knowledge Base tab (7-day grounded-answer rate).
+  useEffect(() => {
+    if (activeTab !== "knowledge_base") return;
+    getQuality()
+      .then((res) => setQuality(res.data))
+      .catch((err) => console.error(err));
+  }, [activeTab]);
 
   useCalendarConnectionToast();
 
@@ -136,16 +145,21 @@ export default function AdminDashboard() {
         {activeTab === "knowledge_base" && (
           <div className="max-w-7xl mx-auto flex flex-col gap-4">
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-              {[
-                { label: 'Total Sources', value: stats?.totalDocuments || 0,  color: 'text-cw-t1' },
-                { label: 'Global Chunks', value: stats?.totalChunks || 0,     color: 'text-cw-blue-light' },
-                { label: 'RAG Precision', value: '98.2%',                     color: 'text-emerald-400' },
-              ].map(({ label, value, color }) => (
-                <div key={label} className="cw-card p-4 text-center">
-                  <div className={`font-outfit text-2xl font-bold ${color}`}>{value}</div>
-                  <div className="cw-section-header mt-1">{label}</div>
-                </div>
-              ))}
+              {(() => {
+                const total = quality?.total_chats ?? 0;
+                const grounded = quality?.high_confidence_chats ?? 0;
+                const groundedPct = total > 0 ? `${Math.round((grounded / total) * 100)}%` : '—';
+                return [
+                  { label: 'Total Sources', value: stats?.totalDocuments || 0, color: 'text-cw-t1' },
+                  { label: 'Global Chunks', value: stats?.totalChunks || 0, color: 'text-cw-blue-light' },
+                  { label: 'Grounded Answers (7d)', value: groundedPct, color: 'text-emerald-400' },
+                ].map(({ label, value, color }) => (
+                  <div key={label} className="cw-card p-4 text-center">
+                    <div className={`font-outfit text-2xl font-bold ${color}`}>{value}</div>
+                    <div className="cw-section-header mt-1">{label}</div>
+                  </div>
+                ));
+              })()}
             </div>
             <DocumentTable />
           </div>

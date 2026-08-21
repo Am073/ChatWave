@@ -2,15 +2,14 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Annotated
 
 from fastapi import APIRouter, Query
+from pydantic import BaseModel, Field
 
 from app.api.deps import CSRFDep, CurrentUser
-from app.core.errors import NotFoundError, ValidationAppError
+from app.core.errors import ValidationAppError
 from app.models.calendar_event import CalendarEvent
 from app.models.user import User
-from pydantic import BaseModel, Field
 
 router = APIRouter()
 

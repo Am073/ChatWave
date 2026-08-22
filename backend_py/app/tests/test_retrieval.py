@@ -38,9 +38,10 @@ def test_filter_for_student_contains_tenant_and_department():
     keys = sorted(c.key for c in f.must or [])
     assert keys == ["collegeName", "department"]
     dept_value = next(
-        c.match.value for c in f.must or [] if c.key == "department"  # type: ignore[union-attr]
+        c.match.any for c in f.must or [] if c.key == "department"  # type: ignore[union-attr]
     )
-    assert dept_value == "CS"
+    # Own department + always college_wide (shared docs stay visible).
+    assert sorted(dept_value) == ["CS", "college_wide"]
 
 
 def test_filter_for_admin_omits_department_filter():
@@ -54,9 +55,9 @@ def test_filter_for_student_without_department_falls_back_to_college_wide():
     ctx = _ctx("student", dept=None, college="ChatWave College")
     f = build_tenant_filter(ctx)
     dept_value = next(
-        c.match.value for c in f.must or [] if c.key == "department"  # type: ignore[union-attr]
+        c.match.any for c in f.must or [] if c.key == "department"  # type: ignore[union-attr]
     )
-    assert dept_value == "college_wide"
+    assert dept_value == ["college_wide"]
 
 
 def test_include_department_false_skips_department_filter():

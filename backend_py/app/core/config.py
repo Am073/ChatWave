@@ -41,7 +41,8 @@ class Settings(BaseSettings):
     qdrant_url: str
     qdrant_api_key: str | None = None
     qdrant_collection_prefix: str = "cw_"
-    embedding_dim: int = 768
+    # gemini-embedding-001 outputs 3072-dim vectors by default.
+    embedding_dim: int = 3072
 
     # ---- Redis / Celery ----
     redis_url: str = "redis://localhost:6379/0"
@@ -54,8 +55,8 @@ class Settings(BaseSettings):
     anthropic_api_key: str | None = None
     openai_api_key: str | None = None
     # Default chat / embedding model (Gemini is the free-tier default)
-    chat_model: str = "gemini/gemini-2.0-flash"
-    embedding_model: str = "gemini/embedding-001"
+    chat_model: str = "gemini/gemini-3.6-flash"
+    embedding_model: str = "gemini/gemini-embedding-001"
     # Allow admins to switch the default model at runtime (stored in-memory)
     enable_runtime_model_switch: bool = True
     # Cost guard: max tokens allowed in a single LLM completion
@@ -147,9 +148,9 @@ class Settings(BaseSettings):
         if self.gemini_api_key:
             catalog.extend(
                 [
-                    "gemini/gemini-2.0-flash",
+                    "gemini/gemini-3.6-flash",
+                    "gemini/gemini-2.5-flash",
                     "gemini/gemini-2.5-pro",
-                    "gemini/gemini-1.5-flash",
                 ]
             )
         if self.anthropic_api_key:

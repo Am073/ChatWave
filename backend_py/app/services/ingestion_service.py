@@ -12,8 +12,9 @@ from __future__ import annotations
 import hashlib
 import io
 import re
+import uuid
 
-from qdrant_client.models import Distance, PointStruct, VectorParams
+from qdrant_client.models import Distance, PayloadSchemaType, PointStruct, VectorParams
 
 from app.core.config import get_settings
 from app.core.db import get_qdrant_client
@@ -127,34 +128,77 @@ def _fallback_extract_text(file_bytes: bytes, mime_type: str, filename: str) -> 
 
 
 async def embed_texts(texts: list[str]) -> list[list[float]]:
-    """Generate embeddings through LiteLLM (provider-portable)."""
+    """Generate embeddings through LiteLLM (provider-portable).
+
+    Batched: Gemini's BatchEmbedContentsRequest accepts at most 100 requests
+    per call, and large PDFs chunk past that. 90 keeps a safety margin.
+    Rate-limited batches (free-tier 429s) wait out Google's own backoff hint
+    instead of failing the whole ingestion task.
+    """
+    import asyncio
+
     if not texts:
         return []
     import litellm
 
-    resp = await litellm.aembedding(
-        model=_settings.embedding_model,
-        input=texts,
-    )
-    # litellm returns a list of data items with .embedding
-    return [d["embedding"] for d in resp["data"]]
+    BATCH = 90
+    MAX_ATTEMPTS = 8
+    out: list[list[float]] = []
+    for i in range(0, len(texts), BATCH):
+        batch = texts[i : i + BATCH]
+        resp = None
+        for attempt in range(MAX_ATTEMPTS):
+            try:
+                resp = await litellm.aembedding(
+                    model=_settings.embedding_model,
+                    input=batch,
+                )
+                break
+            except Exception as exc:  # noqa: BLE001
+                msg = str(exc)
+                is_throttled = "429" in msg or "RESOURCE_EXHAUSTED" in msg
+                if not is_throttled or attempt == MAX_ATTEMPTS - 1:
+                    raise
+                wait = min(60, 5 * (2**attempt))
+                log.warning(
+                    "embedding_rate_limited",
+                    batch_index=i // BATCH,
+                    attempt=attempt + 1,
+                    wait_s=wait,
+                )
+                await asyncio.sleep(wait)
+        assert resp is not None  # unreachable: last attempt either returns or raises
+        out.extend(d["embedding"] for d in resp["data"])
+    return out
 
 
 # -------- Qdrant indexing --------
 
+# Payload fields the retrieval filter matches on. Qdrant (recent versions)
+# rejects filtered searches with 400 unless these carry keyword indexes.
+_FILTERED_FIELDS = ("collegeName", "department")
+
 
 async def _ensure_collection(name: str) -> None:
+    import contextlib
+
     client = get_qdrant_client()
     existing = await client.get_collections()
-    names = {c.name for c in existing.collections}
-    if name in names:
-        return
-    await client.create_collection(
-        collection_name=name,
-        vectors_config=VectorParams(
-            size=_settings.embedding_dim, distance=Distance.COSINE
-        ),
-    )
+    if name not in {c.name for c in existing.collections}:
+        await client.create_collection(
+            collection_name=name,
+            vectors_config=VectorParams(
+                size=_settings.embedding_dim, distance=Distance.COSINE
+            ),
+        )
+    for field in _FILTERED_FIELDS:
+        # Idempotent: "already exists" errors are expected and ignored.
+        with contextlib.suppress(Exception):
+            await client.create_payload_index(
+                collection_name=name,
+                field_name=field,
+                field_schema=PayloadSchemaType.KEYWORD,
+            )
 
 
 async def upsert_chunks(
@@ -171,9 +215,11 @@ async def upsert_chunks(
     ids: list[str] = []
     points: list[PointStruct] = []
     for i, (chunk, vec) in enumerate(zip(chunks, embeddings, strict=False)):
-        point_id = hashlib.sha1(
-            f"{document_id}:{i}".encode()
-        ).hexdigest()
+        # Qdrant point IDs must be an unsigned int or a UUID — not raw hex.
+        # Fold the deterministic SHA1 into a UUID so re-ingestion overwrites
+        # the same points instead of duplicating them.
+        digest = hashlib.sha1(f"{document_id}:{i}".encode()).hexdigest()
+        point_id = str(uuid.UUID(hex=digest[:32]))
         payload = {
             "documentId": document_id,
             "chunkIndex": i,
@@ -187,7 +233,17 @@ async def upsert_chunks(
         }
         points.append(PointStruct(id=point_id, vector=vec, payload=payload))
         ids.append(point_id)
-    await client.upsert(collection_name=coll, points=points, wait=True)
+    try:
+        await client.upsert(collection_name=coll, points=points, wait=True)
+    except Exception as exc:  # noqa: BLE001 - surface Qdrant's body in logs
+        detail = getattr(exc, "content", None) or getattr(exc, "body", "") or ""
+        log.error(
+            "qdrant_upsert_failed",
+            collection=coll,
+            points=len(points),
+            detail=str(detail)[:300] or type(exc).__name__,
+        )
+        raise
     return ids
 
 

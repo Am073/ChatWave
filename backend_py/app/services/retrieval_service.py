@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from qdrant_client.models import FieldCondition, Filter, MatchText, MatchValue
+from qdrant_client.models import FieldCondition, Filter, MatchAny, MatchValue
 
 from app.api.deps import TenantContext
 from app.core.config import get_settings
@@ -53,11 +53,11 @@ def build_tenant_filter(
         FieldCondition(key="collegeName", match=MatchValue(value=ctx.college_name)),
     ]
     if include_department and ctx.role != "admin":
+        # College-wide documents (department="college_wide") must stay visible
+        # to every tenant member; own-department docs additionally match.
+        dept_values = sorted({ctx.department or "college_wide", "college_wide"})
         conditions.append(
-            FieldCondition(
-                key="department",
-                match=MatchValue(value=ctx.department or "college_wide"),
-            )
+            FieldCondition(key="department", match=MatchAny(any=dept_values))
         )
     return Filter(must=conditions)
 
@@ -87,29 +87,21 @@ async def retrieve(
 
         query_filter = build_tenant_filter(ctx, include_department=include_department)
 
-        if _settings.use_hybrid_filter:
-            keywords = _extract_keywords(query)
-            if keywords:
-                keyword_conditions = [
-                    FieldCondition(key="text", match=MatchText(text=kw))
-                    for kw in keywords[:5]  # limit to top 5 keywords
-                ]
-                # Use 'should' so keyword matches boost relevance without
-                # excluding documents that don't match any keyword.
-                query_filter = Filter(
-                    must=query_filter.must,
-                    should=keyword_conditions,
-                )
-
+        # Note: no keyword `should` clauses here. In Qdrant, `should` is
+        # mandatory (>=1 must match), which silently excluded chunks not
+        # containing literal query keywords and destroyed recall. Pure dense
+        # vector search handles relevance ranking.
         client = get_qdrant_client()
         try:
-            results = await client.search(
+            # qdrant-client >= 2.0 replaced .search() with .query_points().
+            response = await client.query_points(
                 collection_name=coll,
-                query_vector=query_vec,
+                query=query_vec,
                 limit=k,
                 with_payload=True,
                 query_filter=query_filter,
             )
+            results = response.points
         except Exception as exc:  # noqa: BLE001
             log.warning("qdrant_search_failed", error=str(exc))
             return []

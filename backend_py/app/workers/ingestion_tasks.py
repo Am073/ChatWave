@@ -5,6 +5,7 @@ message, can be re-enqueued via admin endpoint).
 """
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 from typing import Any
 
@@ -19,6 +20,59 @@ from app.services.ingestion_service import (
 from app.workers.celery_app import celery_app
 
 log = get_logger(__name__)
+
+_MODELS_INITIALIZED = False
+# One persistent event loop for the whole worker lifetime. Motor clients bind
+# to the loop they're created on, so asyncio.run-per-task (fresh + closed
+# loops) breaks every task after the first. A background run_forever thread
+# keeps a single loop alive; tasks are submitted onto it.
+_loop = None
+
+
+def _get_loop() -> asyncio.AbstractEventLoop:
+    global _loop
+    if _loop is None or _loop.is_closed():
+        import threading
+
+        _loop = asyncio.new_event_loop()
+        threading.Thread(target=_loop.run_forever, daemon=True).start()
+    return _loop
+
+
+async def _ensure_beanie() -> None:
+    """Initialize Beanie in this process if not already done.
+
+    The API lifespan doesn't run in workers, and some pool types (e.g. solo)
+    never fire worker_process_init — so the task self-heals instead.
+    """
+    global _MODELS_INITIALIZED
+    if _MODELS_INITIALIZED:
+        return
+    from app.core.db import connect_mongodb
+    from app.models.announcement import Announcement
+    from app.models.audit_event import AuditEvent
+    from app.models.calendar_event import CalendarEvent
+    from app.models.chat_log import ChatLog
+    from app.models.document import DocumentRecord
+    from app.models.google_token import UserGoogleToken
+    from app.models.user import User
+
+    models = [
+        Announcement,
+        AuditEvent,
+        CalendarEvent,
+        ChatLog,
+        DocumentRecord,
+        UserGoogleToken,
+        User,
+    ]
+    await connect_mongodb(models)
+    # connect_mongodb returns without initializing if Mongo is unreachable;
+    # this raises CollectionWasNotInitialized in that case, failing the task
+    # (Celery retry) instead of crashing deeper with a confusing error.
+    DocumentRecord.get_settings()
+    _MODELS_INITIALIZED = True
+    log.info("worker_beanie_initialized")
 
 
 @celery_app.task(
@@ -42,14 +96,11 @@ def ingest_document(
     file is NEVER deleted here — its lifecycle (retry, delete) is owned by
     upload_service via DocumentRecord.storage_path.
     """
-    import asyncio
-
     try:
-        return asyncio.run(
-            _run_ingestion(
-                document_id, file_path, college_name, department, mime_type, filename
-            )
+        coro = _run_ingestion(
+            document_id, file_path, college_name, department, mime_type, filename
         )
+        return asyncio.run_coroutine_threadsafe(coro, _get_loop()).result()
     except Exception as exc:  # noqa: BLE001
         try:
             raise self.retry(exc=exc)
@@ -71,6 +122,7 @@ async def _run_ingestion(
     filename: str,
 ) -> dict[str, Any]:
     tracer = get_tracer()
+    await _ensure_beanie()
     doc = await DocumentRecord.get(document_id)
     if doc is None:
         log.warning("ingest_doc_missing", document_id=document_id)

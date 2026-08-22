@@ -34,22 +34,36 @@ class AnnouncementBus:
     async def unsubscribe(self, tenant: str, q: asyncio.Queue[dict[str, Any]]) -> None:
         if q in self._subs.get(tenant, []):
             self._subs[tenant].remove(q)
+        # Drop the tenant key once its last subscriber leaves, otherwise
+        # _subs grows one entry per tenant forever.
+        if not self._subs.get(tenant):
+            self._subs.pop(tenant, None)
         remaining = len(self._subs.get(tenant, []))
         log.info("announcement_unsubscribed", tenant=tenant, remaining=remaining)
 
     async def publish(self, tenant: str, event: dict[str, Any]) -> None:
         payload = {**event, "publishedAt": datetime.now(UTC).isoformat()}
         delivered = 0
+        dropped = 0
         for q in self._subs.get(tenant, []):
             try:
                 q.put_nowait(payload)
                 delivered += 1
             except asyncio.QueueFull:
+                # Slow SSE consumer: event is lost for them permanently.
+                # Count it so operators can see the miss rate.
+                dropped += 1
                 log.warning("announcement_queue_full", tenant=tenant)
+        if dropped:
+            from app.observability.metrics import ANNOUNCEMENT_DROPS
+
+            if ANNOUNCEMENT_DROPS is not None:
+                ANNOUNCEMENT_DROPS.labels(tenant=tenant).inc(dropped)
         log.info(
             "announcement_published",
             tenant=tenant,
             delivered=delivered,
+            dropped=dropped,
             title=payload.get("title"),
         )
 

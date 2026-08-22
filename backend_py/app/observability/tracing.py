@@ -93,14 +93,26 @@ class _LangfuseTracer:
 
     @contextmanager
     def span(self, name: str, **kwargs: Any) -> Iterator[Any]:
+        # Only tracing-setup failures are swallowed. Exceptions raised inside
+        # the caller's with-body propagate — the previous blanket except was
+        # silently erasing real application errors whenever Langfuse ran.
+        cm: Any = None
+        entered: Any = None
         try:
-            with self._client.start_as_current_observation(
+            cm = self._client.start_as_current_observation(
                 name=name, as_type="span", **kwargs
-            ) as span:
-                yield span
-        except Exception:  # noqa: BLE001
-            log.warning("langfuse_span_failed", span=name)
+            )
+            entered = cm.__enter__()
+        except Exception as exc:  # noqa: BLE001 - tracing outage != app failure
+            log.warning("langfuse_span_failed", span=name, error=str(exc))
+        if entered is None:
             yield _NoOpSpan()
+            return
+        try:
+            yield entered
+        finally:
+            with contextlib.suppress(Exception):
+                cm.__exit__(None, None, None)
 
     def generation(
         self,

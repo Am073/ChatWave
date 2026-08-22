@@ -11,7 +11,15 @@ from typing import Any
 def has_grounded_sources(sources: list[dict[str, Any]], min_score: float = 0.55) -> bool:
     if not sources:
         return False
-    return any(s.get("score", 0.0) >= min_score for s in sources)
+    for s in sources:
+        try:
+            # Fail closed: a malformed score (None, non-numeric) counts as
+            # NOT grounded instead of crashing the grounding gate.
+            if float(s.get("score") or 0.0) >= min_score:
+                return True
+        except (TypeError, ValueError):
+            continue
+    return False
 
 
 def build_refusal_answer() -> str:

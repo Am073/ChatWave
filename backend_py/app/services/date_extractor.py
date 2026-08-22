@@ -65,8 +65,9 @@ _DATE_PATTERNS: tuple[re.Pattern[str], ...] = (
         r"\b(\d{1,2}[-\s](?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*[-\s,]\s*\d{2,4})\b",
         re.IGNORECASE,
     ),
-    # US: 03/15/2026 or 3/15/26 — month/day/year
-    re.compile(r"\b(\d{1,2}/\d{1,2}/\d{2,4})\b"),
+    # US: 03/15/2026 — month/day/year. 4-digit year required: without it,
+    # scores/ratios like "24/12/26" match as dates.
+    re.compile(r"\b(\d{1,2}/\d{1,2}/\d{4})\b"),
     # Written: March 15, 2026 / Mar 15 2026 / 15 March 2026
     re.compile(
         r"\b((?:\d{1,2}\s+)?(?:January|February|March|April|May|June|July|"
@@ -139,7 +140,13 @@ def _parse_date(raw: str) -> date | None:
         return None
     if DATEUTIL_AVAILABLE:
         try:
-            parsed = date_parser.parse(raw, fuzzy=True, default=datetime(2099, 1, 1))
+            # Anchor missing fields to the CURRENT year: "March 15" means this
+            # year's March 15, not 2099. The old 2099 default sailed straight
+            # through the junk-year filter below as a fake far-future date.
+            current_year = datetime.now().year
+            parsed = date_parser.parse(
+                raw, fuzzy=True, default=datetime(current_year, 1, 1)
+            )
             return parsed.date()
         except (ValueError, OverflowError, TypeError):
             pass

@@ -52,11 +52,18 @@ if PROMETHEUS_AVAILABLE:
         labelnames=("tenant",),
         registry=REGISTRY,
     )
+    ANNOUNCEMENT_DROPS = Counter(
+        "announcement_drops_total",
+        "Announcement events dropped for slow SSE subscribers",
+        labelnames=("tenant",),
+        registry=REGISTRY,
+    )
 else:
     REGISTRY = None
     HTTP_REQUESTS_TOTAL = None
     HTTP_REQUEST_DURATION = None
     CHATLOG_INSERT_FAILURES = None
+    ANNOUNCEMENT_DROPS = None
 
 
 class PrometheusMiddleware(BaseHTTPMiddleware):
@@ -68,23 +75,43 @@ class PrometheusMiddleware(BaseHTTPMiddleware):
         if not PROMETHEUS_AVAILABLE or request.url.path.endswith("/metrics"):
             return await call_next(request)
         start = time.perf_counter()
-        response = await call_next(request)
-        elapsed = time.perf_counter() - start
-        # Normalize path so we don't blow up label cardinality.
-        path = self._normalize_path(request.url.path)
+        status_code = 500
         try:
-            HTTP_REQUESTS_TOTAL.labels(
-                method=request.method, path=path, status=response.status_code
-            ).inc()
-            HTTP_REQUEST_DURATION.labels(method=request.method, path=path).observe(elapsed)
-        except Exception as exc:  # noqa: BLE001
-            log.warning("metrics_record_failed", error=str(exc))
-        return response
+            response = await call_next(request)
+            status_code = response.status_code
+            return response
+        finally:
+            # try/finally so failed requests are counted and timed too.
+            elapsed = time.perf_counter() - start
+            # Normalize path so we don't blow up label cardinality.
+            path = self._normalize_path(request.url.path)
+            try:
+                HTTP_REQUESTS_TOTAL.labels(
+                    method=request.method, path=path, status=status_code
+                ).inc()
+                HTTP_REQUEST_DURATION.labels(method=request.method, path=path).observe(
+                    elapsed
+                )
+            except Exception as exc:  # noqa: BLE001
+                log.warning("metrics_record_failed", error=str(exc))
 
     @staticmethod
     def _normalize_path(path: str) -> str:
-        # Replace ids with placeholder.
-        return re.sub(r"/[0-9a-fA-F]{16,}", "/{id}", path)
+        """Collapse id-like path segments into {id} to cap label cardinality.
+
+        Covers dashed UUIDs (8-4-4-4-12 hex), bare hex ids >=16 chars,
+        Mongo ObjectIds (24 hex), and plain numeric segments. Any other
+        segment is left as-is; route authors should avoid free-text paths.
+        """
+        path = re.sub(
+            r"/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
+            r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12}(?=/|$)",
+            "/{id}",
+            path,
+        )
+        path = re.sub(r"/[0-9a-fA-F]{16,}(?=/|$)", "/{id}", path)
+        path = re.sub(r"/\d+(?=/|$)", "/{id}", path)
+        return path
 
 
 def render_metrics() -> tuple[bytes, str]:

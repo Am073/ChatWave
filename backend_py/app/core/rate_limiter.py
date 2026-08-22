@@ -134,8 +134,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         if (
             path.endswith("/health")
             or path.endswith("/health/live")
+            or path.endswith("/metrics")  # matches both /metrics and /api/metrics
             or path.startswith("/docs")
-            or path == "/metrics"
         ):
             return await call_next(request)
 

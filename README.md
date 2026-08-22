@@ -1,7 +1,7 @@
 # ChatWave — Multi-tenant Agentic AI Platform
 
 > **Current versions:**
-> - **v2 (FastAPI + AI stack)** — `backend_py/` (FastAPI + Beanie + LangGraph + LlamaIndex + Qdrant + LiteLLM + Celery + Langfuse)
+> - **v2 (FastAPI + AI stack)** — `backend_py/` (FastAPI + Beanie + LangGraph + Qdrant + LiteLLM + Celery + Langfuse)
 > - **Frontend** — `frontend/` (React 19 + Vite, pointed at FastAPI)
 >
 > See `specs/` for the v2 specification and `CHATWAVE-INFO.md` for the v1 source-of-truth.
@@ -34,11 +34,11 @@ See `SETUP.md` for full instructions.
 
 ```
 chatwave/
-├── backend_py/            FastAPI + Beanie + LangGraph + LlamaIndex + Qdrant + LiteLLM
+├── backend_py/            FastAPI + Beanie + LangGraph + Qdrant + LiteLLM
 ├── frontend/              React 19 + Vite (proxies /api to FastAPI :8000)
 ├── specs/                 Source-of-truth spec for v2
-├── CHATWAVE-INFO.md       v1 reference + transition plan (historical)
-└── .github/workflows/     CI for backend_py (ruff + pytest)
+├── CHATWAVE-INFO.md       Technical reference (architecture + API + config)
+└── .github/workflows/     CI for backend (ruff + pytest) and frontend (lint/test/build)
 ```
 
 ## Stack highlights
@@ -46,14 +46,13 @@ chatwave/
 - **API**: FastAPI on Python 3.12+ (WebSocket chat, SSE announcements, HTTP REST)
 - **Data models**: Pydantic v2 + Beanie ODM
 - **Primary DB**: MongoDB
-- **Vector DB**: Qdrant (per-tenant collections)
-- **RAG framework**: LlamaIndex + LangGraph
-- **Agent orchestration**: LangGraph (5-node state machine) with tenant-scoped RAG tools (search_documents, get_announcements)
-- **Model gateway**: LiteLLM (Gemini, Claude, GPT-4o) with runtime model switcher
+- **Vector DB**: Qdrant (per-tenant collections, payload-indexed filters)
+- **Agent orchestration**: LangGraph (7-node state machine: 5 pipeline + clarify/refuse) with tenant-scoped RAG tools (search_documents, get_announcements) exposed over MCP
+- **Model gateway**: LiteLLM (Gemini, Claude, GPT-4o) with Redis-backed runtime model switcher
 - **Background jobs**: Celery + Redis
 - **Parsing**: Docling primary, fallback loaders as needed
 - **Observability**: Langfuse + Prometheus metrics + structured request logging
-- **Evals**: Ragas + DeepEval
+- **Evals**: DeepEval (faithfulness / answer relevancy / contextual precision & recall)
 - **Auth**: JWT + CSRF double-submit cookies; OAuth for Google Calendar
 - **Security**: Redis-backed rate limiter, env validation, security headers, HSTS
 - **Frontend**: React 19 + Vite + WebSocket chat + Vitest tests
@@ -63,11 +62,11 @@ chatwave/
 ## More
 
 - `specs/` — full specification (must-read)
-- `CHATWAVE-INFO.md` — v1 reference + transition plan
+- `CHATWAVE-INFO.md` — technical reference (architecture, API, config)
 - `SETUP.md` — environment setup
 - `backend_py/RETIRE_EXPRESS.md` — v1 retirement checklist (complete)
 
-## Key v3 features
+## Key platform features
 
 - **WebSocket chat** at `ws://host/api/chat/ws` (auto-reconnect, cancel support)
 - **SSE announcement push** at `GET /api/announcements/stream`

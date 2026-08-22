@@ -64,14 +64,21 @@ cloud providers via `backend_py/.env`:
 No local Docker is required — just ensure the URIs in `.env` are reachable
 from your machine.
 
-## 4. Seeded test users
+## 4. Seeded demo accounts
 
-Run the seeder (Node.js only) to populate mock accounts:
+Three demo accounts power the login page (and the Playwright E2E suite):
+
+| Role | College ID | Password |
+|------|-----------|----------|
+| Student | `CW-STUDENT` | `Password@123` |
+| Faculty | `CW-FACULTY` | `Password@123` |
+| Admin | `CW-ADMIN` | `Password@123` |
+
+Seed (or reset) them against the configured MongoDB:
 
 ```bash
-cd backend
-# NOTE: backend/ no longer ships with v2. The seeder is preserved in CHATWAVE-INFO.md
-# as a reference implementation. For v2, register accounts via POST /api/auth/register.
+cd backend_py
+uv run python -m scripts.seed_db
 ```
 
 

@@ -26,14 +26,14 @@ npm install -D @playwright/test
 npx playwright install chromium
 ```
 
-**Test files:** `zero to one by Peter theil.pdf`, `the little red book of selling.pdf` (project root)
+**Test files:** any small PDF (a 2-page sample works best for quick ingestion runs).
 
-**Test accounts:**
+**Test accounts (seed with `cd backend_py && uv run python -m scripts.seed_db`):**
 | Role | College ID | Password | College | Department |
 |---|---|---|---|---|
-| Student | STU001 | StrongP@ss123 | TestU | CS |
-| Faculty | FAC001 | StrongP@ss123 | TestU | CS |
-| Admin | ADM001 | StrongP@ss123 | TestU | CS |
+| Student | CW-STUDENT | Password@123 | ChatWave College | Computer Science |
+| Faculty | CW-FACULTY | Password@123 | ChatWave College | Computer Science |
+| Admin | CW-ADMIN | Password@123 | ChatWave College | Administration |
 
 ---
 

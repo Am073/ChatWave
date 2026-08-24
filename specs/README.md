@@ -1,5 +1,7 @@
 # ChatWave v2 Spec-Driven Architecture
 
+> **⚠️ Historical document.** This folder is the *original planning spec* for the v2 rebuild, kept for decision provenance. The shipped implementation intentionally deviates in places — most notably **no LlamaIndex** (raw qdrant-client retrieval), **no Ragas** (broken against current langchain-community; DeepEval instead), and an **MCP tool surface** beyond the original design. See `FINAL_AUDIT.md` §9 Q2 and `CHATWAVE-INFO.md` for what actually ships. Do not treat `[x]` items below as proof a named library is used.
+
 This folder is the source of truth for the ChatWave v2 rebuild.
 
 ChatWave v2 is a FastAPI-based, multi-tenant agentic AI platform for institutional knowledge and campus operations. It replaces the current Express custom RAG backend with a production-grade AI stack built around FastAPI, LlamaIndex, LangGraph, Qdrant, LiteLLM, Celery, Langfuse, Ragas, and DeepEval.

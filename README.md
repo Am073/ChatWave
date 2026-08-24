@@ -20,6 +20,7 @@ uv sync --all-extras
 cp .env.example .env       # edit secrets (cloud URIs for Mongo/Qdrant/Redis)
 uv run uvicorn app.main:app --reload --port 8000
 uv run celery -A app.workers.celery_app.celery_app worker -l info
+uv run python -m scripts.seed_db   # demo accounts: CW-STUDENT / CW-FACULTY / CW-ADMIN (Password@123)
 
 # 2. Frontend (React)
 cd ../frontend

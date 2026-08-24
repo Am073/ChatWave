@@ -221,9 +221,9 @@ scope: college_wide
 
 | # | Method | Endpoint | Payload | Expected Status | Expected Response |
 |---|---|---|---|---|---|
-| 62 | GET | `/admin/model` | — | 200 | `{"model":"gemini/gemini-2.0-flash","override":null,"available":[...]}` |
-| 63 | POST | `/admin/model` | `{"model":"gemini/gemini-1.5-flash"}` | 200 | `{"model":"gemini/gemini-1.5-flash","override":"gemini/gemini-1.5-flash"}` |
-| 64 | DELETE | `/admin/model` | — | 200 | `{"model":"gemini/gemini-2.0-flash","override":null}` |
+| 62 | GET | `/admin/model` | — | 200 | `{"default_model":"gemini/gemini-3.6-flash","active_model":"gemini/gemini-3.6-flash","available":[...],"allow_runtime_switch":true}` |
+| 63 | POST | `/admin/model` | `{"model":"gemini/gemini-2.5-flash"}` | 200 | active_model becomes `gemini/gemini-2.5-flash` (Redis-backed override) |
+| 64 | DELETE | `/admin/model` | — | 200 | override cleared; active_model back to default |
 
 ---
 
